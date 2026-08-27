@@ -682,14 +682,14 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                     <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
                                         <option value="">-- Pilih {{.Name}} --</option>
                                         {{- range .EnumValues}}
-                                        <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.Edit.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
+                                        <option value="{{.}}" {{"{{"}} if $.Edit {{"}}"}}{{"{{"}} if eq (printf "%v" $.Edit.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}}>{{.}}</option>
                                         {{- end}}
                                     </select>
                                     {{- else if .IsTextarea}}
                                     <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="Masukkan {{.Name}}...">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} end {{"}}"}}</textarea>
                                     {{- else if eq .HTMLType "checkbox"}}
                                     <label class="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
+                                        <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if $.Edit {{"}}"}}{{"{{"}} if $.Edit.{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
                                         <span class="text-sm text-slate-600">Aktif</span>
                                     </label>
                                     {{- else}}
