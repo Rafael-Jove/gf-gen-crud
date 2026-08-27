@@ -62,6 +62,7 @@ type TableInfo struct {
 	FormFields []FieldInfo
 	ModuleName string // Module name from go.mod
 	NavItems   []NavItem
+	HasGtime   bool   // true = needs gtime import
 }
 
 // CmdControllerInfo holds info to build cmd.go
@@ -260,6 +261,9 @@ func parseEntityFile(filePath, moduleName string) (*TableInfo, error) {
 				if !isSkip {
 					info.FormFields = append(info.FormFields, fi)
 				}
+				if strings.Contains(typStr, "gtime.Time") {
+					info.HasGtime = true
+				}
 			}
 			break
 		}
@@ -294,6 +298,9 @@ var apiTemplate = template.Must(template.New("api").Parse(`package v1
 
 import (
 	"github.com/gogf/gf/v2/frame/g"
+{{- if .HasGtime}}
+	"github.com/gogf/gf/v2/os/gtime"
+{{- end}}
 )
 
 // ---------- List ----------
