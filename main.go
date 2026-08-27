@@ -1099,34 +1099,47 @@ func main() {
 	entityDir := filepath.Join(root, "internal", "model", "entity")
 	moduleName := readModuleName(root)
 
+	// Check if a database driver is already imported in main.go
+	hasDriver := false
+	mainPath := filepath.Join(root, "main.go")
+	if mainData, err := os.ReadFile(mainPath); err == nil {
+		mainStr := string(mainData)
+		if strings.Contains(mainStr, "github.com/gogf/gf/contrib/drivers/") {
+			hasDriver = true
+		}
+	}
+
 	// Mandatory interactive terminal choice for database driver
 	var driverType string
-	fmt.Println("Pilih driver database yang ingin Anda gunakan di project ini:")
-	fmt.Println("  [1] mysql  - MySQL / MariaDB")
-	fmt.Println("  [2] pgsql  - PostgreSQL")
-	fmt.Println("  [3] sqlite - SQLite")
-	fmt.Println("  [4] mssql  - SQL Server")
-	fmt.Println("  [5] oracle - Oracle")
-	fmt.Println("  [6] Lewatkan (Skip)")
-	fmt.Print("Pilihan Anda (1-6): ")
+	if !hasDriver {
+		fmt.Println("Pilih driver database yang ingin Anda gunakan di project ini:")
+		fmt.Println("  [1] mysql  - MySQL / MariaDB")
+		fmt.Println("  [2] pgsql  - PostgreSQL")
+		fmt.Println("  [3] sqlite - SQLite")
+		fmt.Println("  [4] mssql  - SQL Server")
+		fmt.Println("  [5] oracle - Oracle")
+		fmt.Println("  [6] Lewatkan (Skip)")
+		fmt.Print("Pilihan Anda (1-6): ")
 
-	var choice string
-	_, _ = fmt.Scanln(&choice)
-	switch strings.TrimSpace(choice) {
-	case "1":
-		driverType = "mysql"
-	case "2":
-		driverType = "pgsql"
-	case "3":
-		driverType = "sqlite"
-	case "4":
-		driverType = "mssql"
-	case "5":
-		driverType = "oracle"
-	default:
-		fmt.Println("Melewati konfigurasi driver database.")
+		var choice string
+		_, _ = fmt.Scanln(&choice)
+		switch strings.TrimSpace(choice) {
+		case "1":
+			driverType = "mysql"
+		case "2":
+			driverType = "pgsql"
+		case "3":
+			driverType = "sqlite"
+		case "4":
+			driverType = "mssql"
+		case "5":
+			driverType = "oracle"
+		default:
+			fmt.Println("Melewati konfigurasi driver database.")
+		}
+		fmt.Println()
 	}
-	fmt.Println()
+
 
 	// Auto-import driver to main.go and run go get
 	if driverType != "" {
