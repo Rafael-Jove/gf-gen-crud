@@ -1098,6 +1098,25 @@ func main() {
 	entityDir := filepath.Join(root, "internal", "model", "entity")
 	moduleName := readModuleName(root)
 
+	// Generate helper gen.bat automatically in project root if it does not exist
+	genBatPath := filepath.Join(root, "gen.bat")
+	if _, err := os.Stat(genBatPath); os.IsNotExist(err) {
+		fmt.Println("=== Generating helper gen.bat ===")
+		genBatContent := `@echo off
+echo === Running gf gen dao ===
+gf gen dao
+
+echo === Running gen_crud.go ===
+gf-gen-crud --overwrite
+
+echo === Running gf gen service ===
+gf gen service
+
+echo === Done! ===
+`
+		_ = writeFile(genBatPath, genBatContent, false)
+	}
+
 	fmt.Printf("Module  : %s\n", moduleName)
 	fmt.Printf("Entities: %s\n\n", entityDir)
 
@@ -1303,24 +1322,7 @@ func main() {
 		_ = writeFile(cmdPath, cmdContent, true) // Selalu overwrite cmd.go agar terupdate otomatis
 	}
 
-	// 5. Generate helper gen.bat automatically in project root if it does not exist
-	genBatPath := filepath.Join(root, "gen.bat")
-	if _, err := os.Stat(genBatPath); os.IsNotExist(err) {
-		fmt.Println("=== Generating helper gen.bat ===")
-		genBatContent := `@echo off
-echo === Running gf gen dao ===
-gf gen dao
 
-echo === Running gen_crud.go ===
-gf-gen-crud --overwrite
-
-echo === Running gf gen service ===
-gf gen service
-
-echo === Done! ===
-`
-		_ = writeFile(genBatPath, genBatContent, false)
-	}
 
 	fmt.Println("===================================")
 	fmt.Println("Selesai! Langkah berikutnya:")
