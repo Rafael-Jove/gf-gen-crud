@@ -1120,27 +1120,27 @@ import (
 )
 
 func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{{.ShortName}}Req) (res *v1.Create{{.ShortName}}Res, err error) {
+	createData := do.{{.StructName}}{
+		{{- range .FormFields}}
+		{{- if ne .HTMLType "file"}}
+		{{.Name}}: req.{{.Name}},
+		{{- end}}
+		{{- end}}
+	}
+
 	{{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
-	var {{.JsonTag}}Bytes []byte
 	if req.{{.Name}} != nil {
 		if f, errOpen := req.{{.Name}}.Open(); errOpen == nil {
-			{{.JsonTag}}Bytes, _ = io.ReadAll(f)
+			b, _ := io.ReadAll(f)
 			_ = f.Close()
+			createData.{{.Name}} = b
 		}
 	}
 	{{- end}}
 	{{- end}}
 
-	_, err = service.{{.StructName}}().Create(ctx, do.{{.StructName}}{
-		{{- range .FormFields}}
-		{{- if eq .HTMLType "file"}}
-		{{.Name}}: {{.JsonTag}}Bytes,
-		{{- else}}
-		{{.Name}}: req.{{.Name}},
-		{{- end}}
-		{{- end}}
-	})
+	_, err = service.{{.StructName}}().Create(ctx, createData)
 	if err != nil {
 		return nil, err
 	}
@@ -1168,28 +1168,27 @@ import (
 )
 
 func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{{.ShortName}}Req) (res *v1.Update{{.ShortName}}Res, err error) {
+	updateData := do.{{.StructName}}{
+		{{- range .FormFields}}
+		{{- if ne .HTMLType "file"}}
+		{{.Name}}: req.{{.Name}},
+		{{- end}}
+		{{- end}}
+	}
+
 	{{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
-	var {{.JsonTag}}Bytes interface{}
 	if req.{{.Name}} != nil {
 		if f, errOpen := req.{{.Name}}.Open(); errOpen == nil {
 			b, _ := io.ReadAll(f)
 			_ = f.Close()
-			{{.JsonTag}}Bytes = b
+			updateData.{{.Name}} = b
 		}
 	}
 	{{- end}}
 	{{- end}}
 
-	err = service.{{.StructName}}().Update(ctx, req.Id, do.{{.StructName}}{
-		{{- range .FormFields}}
-		{{- if eq .HTMLType "file"}}
-		{{.Name}}: {{.JsonTag}}Bytes,
-		{{- else}}
-		{{.Name}}: req.{{.Name}},
-		{{- end}}
-		{{- end}}
-	})
+	err = service.{{.StructName}}().Update(ctx, req.Id, updateData)
 	if err != nil {
 		return nil, err
 	}
