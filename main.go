@@ -678,10 +678,11 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                 <div>
                                     <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
                                     {{- if .EnumValues}}
+                                    {{- $fieldName := .Name}}
                                     <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
                                         <option value="">-- Pilih {{.Name}} --</option>
                                         {{- range .EnumValues}}
-                                        <option value="{{.}}">{{.}}</option>
+                                        <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.Edit.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
                                         {{- end}}
                                     </select>
                                     {{- else if .IsTextarea}}
@@ -785,10 +786,11 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
             <div>
                 <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
                 {{- if .EnumValues}}
+                {{- $fieldName := .Name}}
                 <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
                     <option value="">-- Pilih {{.Name}} --</option>
                     {{- range .EnumValues}}
-                    <option value="{{.}}">{{.}}</option>
+                    <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
                     {{- end}}
                 </select>
                 {{- else if .IsTextarea}}
