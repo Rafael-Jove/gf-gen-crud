@@ -7,6 +7,7 @@
 //   - Rebuilds internal/cmd/cmd.go to register routes automatically.
 //
 // Usage:
+//
 //	go run ./hack/gen_crud.go
 //	go run ./hack/gen_crud.go --table=users
 //	go run ./hack/gen_crud.go --overwrite
@@ -62,7 +63,7 @@ type TableInfo struct {
 	FormFields []FieldInfo
 	ModuleName string // Module name from go.mod
 	NavItems   []NavItem
-	HasGtime   bool   // true = needs gtime import
+	HasGtime   bool // true jika ada field bertipe gtime.Time
 }
 
 // CmdControllerInfo holds info to build cmd.go
@@ -451,9 +452,15 @@ func (s *s{{.StructName}}) Delete(ctx context.Context, id uint64) (err error) {
 
 var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.FuncMap{
 	"slice": func(s string, start, end int) string {
-		if start < 0 { start = 0 }
-		if end > len(s) { end = len(s) }
-		if start > end { return "" }
+		if start < 0 {
+			start = 0
+		}
+		if end > len(s) {
+			end = len(s)
+		}
+		if start > end {
+			return ""
+		}
 		return s[start:end]
 	},
 }).Parse(`<!DOCTYPE html>
@@ -679,9 +686,15 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCT
 
 var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.FuncMap{
 	"slice": func(s string, start, end int) string {
-		if start < 0 { start = 0 }
-		if end > len(s) { end = len(s) }
-		if start > end { return "" }
+		if start < 0 {
+			start = 0
+		}
+		if end > len(s) {
+			end = len(s)
+		}
+		if start > end {
+			return ""
+		}
 		return s[start:end]
 	},
 }).Parse(`<!DOCTYPE html>
@@ -1157,7 +1170,6 @@ func main() {
 		fmt.Println()
 	}
 
-
 	// Auto-import driver to main.go and run go get
 	if driverType != "" {
 		mainPath := filepath.Join(root, "main.go")
@@ -1347,7 +1359,7 @@ echo === Done! ===
 			continue
 		}
 		pkgName := d.Name()
-		
+
 		// Find shortname from allEntities if possible
 		short := snakeToTitle(pkgName)
 		for _, ent := range allEntities {
@@ -1406,8 +1418,6 @@ echo === Done! ===
 		cmdPath := filepath.Join(root, "internal", "cmd", "cmd.go")
 		_ = writeFile(cmdPath, cmdContent, true) // Selalu overwrite cmd.go agar terupdate otomatis
 	}
-
-
 
 	fmt.Println("===================================")
 	fmt.Println("Selesai! Langkah berikutnya:")
