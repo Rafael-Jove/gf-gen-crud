@@ -26,6 +26,8 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+
+	"github.com/manifoldco/promptui"
 )
 
 // ============================================================
@@ -1104,7 +1106,8 @@ func main() {
 	mainPath := filepath.Join(root, "main.go")
 	if mainData, err := os.ReadFile(mainPath); err == nil {
 		mainStr := string(mainData)
-		if strings.Contains(mainStr, "github.com/gogf/gf/contrib/drivers/") {
+		re := regexp.MustCompile(`(?m)^\s*_\s*"github\.com/gogf/gf/contrib/drivers/`)
+		if re.MatchString(mainStr) {
 			hasDriver = true
 		}
 	}
@@ -1112,27 +1115,34 @@ func main() {
 	// Mandatory interactive terminal choice for database driver
 	var driverType string
 	if !hasDriver {
-		fmt.Println("Pilih driver database yang ingin Anda gunakan di project ini:")
-		fmt.Println("  [1] mysql  - MySQL / MariaDB")
-		fmt.Println("  [2] pgsql  - PostgreSQL")
-		fmt.Println("  [3] sqlite - SQLite")
-		fmt.Println("  [4] mssql  - SQL Server")
-		fmt.Println("  [5] oracle - Oracle")
-		fmt.Println("  [6] Lewatkan (Skip)")
-		fmt.Print("Pilihan Anda (1-6): ")
+		prompt := promptui.Select{
+			Label: "Pilih driver database yang ingin Anda gunakan di project ini",
+			Items: []string{
+				"mysql  - MySQL / MariaDB",
+				"pgsql  - PostgreSQL",
+				"sqlite - SQLite",
+				"mssql  - SQL Server",
+				"oracle - Oracle",
+				"Lewatkan (Skip)",
+			},
+		}
 
-		var choice string
-		_, _ = fmt.Scanln(&choice)
-		switch strings.TrimSpace(choice) {
-		case "1":
+		index, _, err := prompt.Run()
+		if err != nil {
+			fmt.Printf("Pilihan driver batal: %v\n", err)
+			os.Exit(1)
+		}
+
+		switch index {
+		case 0:
 			driverType = "mysql"
-		case "2":
+		case 1:
 			driverType = "pgsql"
-		case "3":
+		case 2:
 			driverType = "sqlite"
-		case "4":
+		case 3:
 			driverType = "mssql"
-		case "5":
+		case 4:
 			driverType = "oracle"
 		default:
 			fmt.Println("Melewati konfigurasi driver database.")
