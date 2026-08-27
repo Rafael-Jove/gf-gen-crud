@@ -443,6 +443,9 @@ import (
 {{- if .HasGtime}}
 	"github.com/gogf/gf/v2/os/gtime"
 {{- end}}
+{{- if .HasUpload}}
+	"github.com/gogf/gf/v2/net/ghttp"
+{{- end}}
 )
 
 // ---------- List ----------
@@ -1155,8 +1158,6 @@ import (
 	"context"
 {{- if .HasUpload}}
 	"io"
-
-	"github.com/gogf/gf/v2/frame/g"
 {{- end}}
 
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -1169,13 +1170,12 @@ import (
 func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{{.ShortName}}Req) (res *v1.Update{{.ShortName}}Res, err error) {
 	{{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
-	var {{.JsonTag}}Bytes []byte
-	var has{{.Name}}Upload bool
+	var {{.JsonTag}}Bytes interface{}
 	if req.{{.Name}} != nil {
 		if f, errOpen := req.{{.Name}}.Open(); errOpen == nil {
-			{{.JsonTag}}Bytes, _ = io.ReadAll(f)
+			b, _ := io.ReadAll(f)
 			_ = f.Close()
-			has{{.Name}}Upload = true
+			{{.JsonTag}}Bytes = b
 		}
 	}
 	{{- end}}
@@ -1184,7 +1184,7 @@ func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{
 	err = service.{{.StructName}}().Update(ctx, req.Id, do.{{.StructName}}{
 		{{- range .FormFields}}
 		{{- if eq .HTMLType "file"}}
-		{{.Name}}: g.Conditional(has{{.Name}}Upload, {{.JsonTag}}Bytes, nil), // Only update file if new one is uploaded
+		{{.Name}}: {{.JsonTag}}Bytes,
 		{{- else}}
 		{{.Name}}: req.{{.Name}},
 		{{- end}}
