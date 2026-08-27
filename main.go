@@ -1099,59 +1099,34 @@ func main() {
 	entityDir := filepath.Join(root, "internal", "model", "entity")
 	moduleName := readModuleName(root)
 
-	// Detect database driver from config.yaml
-	configPaths := []string{
-		filepath.Join(root, "manifest", "config", "config.yaml"),
-		filepath.Join(root, "config", "config.yaml"),
-		filepath.Join(root, "config.yaml"),
-	}
-	var configData []byte
-	for _, p := range configPaths {
-		if d, err := os.ReadFile(p); err == nil {
-			configData = d
-			break
-		}
-	}
-
+	// Mandatory interactive terminal choice for database driver
 	var driverType string
-	if len(configData) > 0 {
-		reLink := regexp.MustCompile(`link:\s*["']?([a-zA-Z0-9]+):`)
-		m := reLink.FindSubmatch(configData)
-		if len(m) > 1 {
-			driverType = strings.ToLower(string(m[1]))
-		}
-	}
+	fmt.Println("Pilih driver database yang ingin Anda gunakan di project ini:")
+	fmt.Println("  [1] mysql  - MySQL / MariaDB")
+	fmt.Println("  [2] pgsql  - PostgreSQL")
+	fmt.Println("  [3] sqlite - SQLite")
+	fmt.Println("  [4] mssql  - SQL Server")
+	fmt.Println("  [5] oracle - Oracle")
+	fmt.Println("  [6] Lewatkan (Skip)")
+	fmt.Print("Pilihan Anda (1-6): ")
 
-	// Fallback to interactive terminal choice if not detected
-	if driverType == "" {
-		fmt.Println("Database driver tidak terdeteksi otomatis dari konfigurasi.")
-		fmt.Println("Pilih driver database yang ingin Anda gunakan di project ini:")
-		fmt.Println("  [1] mysql  - MySQL / MariaDB (Default)")
-		fmt.Println("  [2] pgsql  - PostgreSQL")
-		fmt.Println("  [3] sqlite - SQLite")
-		fmt.Println("  [4] mssql  - SQL Server")
-		fmt.Println("  [5] oracle - Oracle")
-		fmt.Println("  [6] Lewatkan (Skip)")
-		fmt.Print("Pilihan Anda (1-6): ")
-
-		var choice string
-		_, _ = fmt.Scanln(&choice)
-		switch strings.TrimSpace(choice) {
-		case "1":
-			driverType = "mysql"
-		case "2":
-			driverType = "pgsql"
-		case "3":
-			driverType = "sqlite"
-		case "4":
-			driverType = "mssql"
-		case "5":
-			driverType = "oracle"
-		default:
-			fmt.Println("Melewati konfigurasi driver database.")
-		}
-		fmt.Println()
+	var choice string
+	_, _ = fmt.Scanln(&choice)
+	switch strings.TrimSpace(choice) {
+	case "1":
+		driverType = "mysql"
+	case "2":
+		driverType = "pgsql"
+	case "3":
+		driverType = "sqlite"
+	case "4":
+		driverType = "mssql"
+	case "5":
+		driverType = "oracle"
+	default:
+		fmt.Println("Melewati konfigurasi driver database.")
 	}
+	fmt.Println()
 
 	// Auto-import driver to main.go and run go get
 	if driverType != "" {
