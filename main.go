@@ -15,6 +15,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -28,6 +29,7 @@ import (
 	"text/template"
 	"unicode"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/manifoldco/promptui"
 )
 
@@ -37,13 +39,15 @@ import (
 
 // FieldInfo represents a parsed struct field.
 type FieldInfo struct {
-	Name     string // Go field name, e.g. "NoHp"
-	Type     string // Go type, e.g. "string", "int64", "*gtime.Time"
-	JsonTag  string // json tag value, e.g. "no_hp"
-	OrmTag   string // orm tag value, e.g. "no_hp"
-	IsSkip   bool   // true = exclude from create/update forms
-	IsAudit  bool   // true = auto-managed (CreatedAt, UpdatedAt, etc.)
-	HTMLType string // HTML input type: "text", "number", "datetime-local"
+	Name       string   // Go field name, e.g. "NoHp"
+	Type       string   // Go type, e.g. "string", "int64", "*gtime.Time"
+	JsonTag    string   // json tag value, e.g. "no_hp"
+	OrmTag     string   // orm tag value, e.g. "no_hp"
+	IsSkip     bool     // true = exclude from create/update forms
+	IsAudit    bool     // true = auto-managed (CreatedAt, UpdatedAt, etc.)
+	HTMLType   string   // HTML input type: "text", "number", "date", "datetime-local", "time", "checkbox"
+	IsTextarea bool     // true = render as <textarea> (TEXT/LONGTEXT/JSON columns)
+	EnumValues []string // non-empty = render as <select> with these options
 }
 
 type NavItem struct {
@@ -151,6 +155,133 @@ func goTypeToHTMLInput(t string) string {
 	default:
 		return "text"
 	}
+}
+
+// DBColMeta holds raw column_type info from INFORMATION_SCHEMA.
+type DBColMeta struct {
+	HTMLType   string
+	IsTextarea bool
+	EnumValues []string
+}
+
+// parseMySQLLink parses a GoFrame MySQL link string:
+//   mysql:user:pass@tcp(host:port)/dbname
+func parseMySQLLink(link string) (dsn string, ok bool) {
+	// Format: mysql:user:pass@tcp(host:port)/dbname
+	link = strings.TrimSpace(link)
+	parts := strings.SplitN(link, ":", 3)
+	if len(parts) < 3 || strings.ToLower(parts[0]) != "mysql" {
+		return "", false
+	}
+	user := parts[1]
+	rest := parts[2] // pass@tcp(host:port)/dbname
+	atIdx := strings.LastIndex(rest, "@")
+	if atIdx < 0 {
+		return "", false
+	}
+	pass := rest[:atIdx]
+	hostDB := rest[atIdx+1:] // tcp(host:port)/dbname
+	// Extract dbname
+	slashIdx := strings.Index(hostDB, "/")
+	if slashIdx < 0 {
+		return "", false
+	}
+	hostPart := hostDB[:slashIdx]
+	dbname := hostDB[slashIdx+1:]
+	// Strip query params from dbname
+	if q := strings.Index(dbname, "?"); q >= 0 {
+		dbname = dbname[:q]
+	}
+	// hostPart = tcp(127.0.0.1:3306) → 127.0.0.1:3306
+	hostPart = strings.TrimPrefix(hostPart, "tcp(")
+	hostPart = strings.TrimSuffix(hostPart, ")")
+	dsn = fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, pass, hostPart, dbname)
+	return dsn, true
+}
+
+// fetchDBColumnTypes reads hack/config.yaml to get the DB DSN, then queries
+// INFORMATION_SCHEMA.COLUMNS for the given table and returns a map of
+// column_name → DBColMeta. Returns empty map on any error (graceful degradation).
+func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
+	cfg, err := os.ReadFile(filepath.Join(root, "hack", "config.yaml"))
+	if err != nil {
+		return nil
+	}
+	// Extract link value from YAML (simple regex, no full YAML parser needed)
+	// Matches: link: "mysql:root:@tcp(127.0.0.1:3306)/dbname" or link: 'mysql:...'
+	re := regexp.MustCompile(`link:\s*["']?([^"'\n]+)["']?`)
+	m := re.FindSubmatch(cfg)
+	if len(m) < 2 {
+		return nil
+	}
+	link := strings.TrimSpace(string(m[1]))
+	dsn, ok := parseMySQLLink(link)
+	if !ok {
+		return nil
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT COLUMN_NAME, COLUMN_TYPE
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+		ORDER BY ORDINAL_POSITION`, tableName)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	result := map[string]DBColMeta{}
+	for rows.Next() {
+		var colName, colType string
+		if err := rows.Scan(&colName, &colType); err != nil {
+			continue
+		}
+		colTypeLow := strings.ToLower(colType)
+		meta := DBColMeta{HTMLType: "text"}
+		switch {
+		case strings.HasPrefix(colTypeLow, "enum("):
+			// enum('val1','val2') → ["val1","val2"]
+			inner := colType[5 : len(colType)-1] // strip enum( and )
+			for _, v := range strings.Split(inner, ",") {
+				v = strings.Trim(strings.TrimSpace(v), "'\"")
+				if v != "" {
+					meta.EnumValues = append(meta.EnumValues, v)
+				}
+			}
+			meta.HTMLType = "select"
+		case strings.Contains(colTypeLow, "text"),
+			strings.Contains(colTypeLow, "json"),
+			strings.Contains(colTypeLow, "blob"):
+			meta.IsTextarea = true
+			meta.HTMLType = "textarea"
+		case strings.Contains(colTypeLow, "datetime"),
+			strings.Contains(colTypeLow, "timestamp"):
+			meta.HTMLType = "datetime-local"
+		case strings.HasPrefix(colTypeLow, "date"):
+			meta.HTMLType = "date"
+		case strings.HasPrefix(colTypeLow, "time"):
+			meta.HTMLType = "time"
+		case strings.HasPrefix(colTypeLow, "year"):
+			meta.HTMLType = "number"
+		case strings.Contains(colTypeLow, "int"):
+			meta.HTMLType = "number"
+		case strings.Contains(colTypeLow, "float"),
+			strings.Contains(colTypeLow, "double"),
+			strings.Contains(colTypeLow, "decimal"),
+			strings.Contains(colTypeLow, "numeric"):
+			meta.HTMLType = "number"
+		case strings.Contains(colTypeLow, "bool"),
+			strings.Contains(colTypeLow, "tinyint(1)"):
+			meta.HTMLType = "checkbox"
+		}
+		result[colName] = meta
+	}
+	return result
 }
 
 // extractTag extracts a tag value from a raw tag string like `json:"no_hp" orm:"no_hp"`.
@@ -546,6 +677,21 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                 {{- range .FormFields}}
                                 <div>
                                     <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
+                                    {{- if .EnumValues}}
+                                    <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
+                                        <option value="">-- Pilih {{.Name}} --</option>
+                                        {{- range .EnumValues}}
+                                        <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.Edit.{{$.ShortName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
+                                        {{- end}}
+                                    </select>
+                                    {{- else if .IsTextarea}}
+                                    <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="Masukkan {{.Name}}...">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} end {{"}}"}}</textarea>
+                                    {{- else if eq .HTMLType "checkbox"}}
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
+                                        <span class="text-sm text-slate-600">Aktif</span>
+                                    </label>
+                                    {{- else}}
                                     <input 
                                         type="{{.HTMLType}}" 
                                         name="{{.JsonTag}}" 
@@ -553,6 +699,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                         class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
                                         placeholder="Masukkan {{.Name}}..."
                                     />
+                                    {{- end}}
                                 </div>
                                 {{- end}}
                                 
@@ -637,7 +784,23 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
             {{- range .FormFields}}
             <div>
                 <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
+                {{- if .EnumValues}}
+                <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
+                    <option value="">-- Pilih {{.Name}} --</option>
+                    {{- range .EnumValues}}
+                    <option value="{{.}}">{{.}}</option>
+                    {{- end}}
+                </select>
+                {{- else if .IsTextarea}}
+                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
+                {{- else if eq .HTMLType "checkbox"}}
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
+                    <span class="text-sm text-slate-600">Aktif</span>
+                </label>
+                {{- else}}
                 <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                {{- end}}
             </div>
             {{- end}}
             <div class="pt-2 flex items-center space-x-3">
@@ -1229,6 +1392,23 @@ echo === Done! ===
 		if err != nil || info == nil {
 			fmt.Printf("Skip %s: %v\n", f, err)
 			continue
+		}
+		// Enrich field metadata from DB schema (ENUM, TEXT, date subtypes)
+		dbCols := fetchDBColumnTypes(root, info.TableName)
+		if len(dbCols) > 0 {
+			enrichFields := func(fields []FieldInfo) []FieldInfo {
+				for i, fi := range fields {
+					if meta, ok := dbCols[fi.OrmTag]; ok {
+						fields[i].HTMLType = meta.HTMLType
+						fields[i].IsTextarea = meta.IsTextarea
+						fields[i].EnumValues = meta.EnumValues
+					}
+				}
+				return fields
+			}
+			info.Fields = enrichFields(info.Fields)
+			info.ListFields = enrichFields(info.ListFields)
+			info.FormFields = enrichFields(info.FormFields)
 		}
 		allEntities = append(allEntities, info)
 	}
