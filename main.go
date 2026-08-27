@@ -708,6 +708,30 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                     <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} else {{"}}"}}{{if .IsJson}}{}{{end}}{{"{{"}} end {{"}}"}}</textarea>
                                     {{- else if eq .HTMLType "file"}}
                                     <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                                    {{- else if eq .HTMLType "date"}}
+                                    <input 
+                                        type="date" 
+                                        name="{{.JsonTag}}" 
+                                        value="{{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}{{"{{"}} $.Edit.{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" 
+                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
+                                        placeholder="Masukkan {{.Name}}..."
+                                    />
+                                    {{- else if eq .HTMLType "time"}}
+                                    <input 
+                                        type="time" 
+                                        name="{{.JsonTag}}" 
+                                        value="{{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}{{"{{"}} $.Edit.{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" 
+                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
+                                        placeholder="Masukkan {{.Name}}..."
+                                    />
+                                    {{- else if eq .HTMLType "datetime-local"}}
+                                    <input 
+                                        type="datetime-local" 
+                                        name="{{.JsonTag}}" 
+                                        value="{{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}{{"{{"}} $.Edit.{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" 
+                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
+                                        placeholder="Masukkan {{.Name}}..."
+                                    />
                                     {{- else if eq .HTMLType "checkbox"}}
                                     <label class="flex items-center gap-2 cursor-pointer">
                                         <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if $.Edit {{"}}"}}{{"{{"}} if $.Edit.{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
@@ -763,7 +787,19 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                         {{"{{"}}range .List{{"}}"}}
                                         <tr class="hover:bg-slate-50/50 transition-colors">
                                             {{- range .ListFields}}
-                                            <td class="px-6 py-4 text-sm text-slate-700 font-medium">{{"{{"}} .{{.Name}} {{"}}"}}</td>
+                                            <td class="px-6 py-4 text-sm text-slate-700 font-medium">
+                                                {{- if eq .HTMLType "file"}}
+                                                {{"{{"}} if .{{.Name}} {{"}}"}}
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                                    Ada File
+                                                </span>
+                                                {{"{{"}} else {{"}}"}}
+                                                <span class="text-slate-400 font-normal">-</span>
+                                                {{"{{"}} end {{"}}"}}
+                                                {{- else}}
+                                                {{"{{"}} .{{.Name}} {{"}}"}}
+                                                {{- end}}
+                                            </td>
                                             {{- end}}
                                             <td class="px-6 py-4 text-sm text-slate-700 text-right space-x-3">
                                                 <a href="/{{$.TableName}}?edit_id={{"{{"}} .Id {{"}}"}}" class="inline-flex items-center text-xs font-semibold text-indigo-600 hover:text-indigo-900 transition-colors">
@@ -818,6 +854,12 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
                 <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
                 {{- else if eq .HTMLType "file"}}
                 <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                {{- else if eq .HTMLType "date"}}
+                <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                {{- else if eq .HTMLType "time"}}
+                <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                {{- else if eq .HTMLType "datetime-local"}}
+                <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
                 {{- else if eq .HTMLType "checkbox"}}
                 <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
@@ -858,7 +900,19 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCT
                 {{- range .Fields}}
                 <tr>
                     <th class="py-2.5 font-semibold text-slate-500 w-1/3">{{.Name}}</th>
-                    <td class="py-2.5 text-slate-700">{{"{{"}} .{{.Name}} {{"}}"}}</td>
+                    <td class="py-2.5 text-slate-700">
+                        {{- if eq .HTMLType "file"}}
+                        {{"{{"}} if .{{.Name}} {{"}}"}}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            Ada File
+                        </span>
+                        {{"{{"}} else {{"}}"}}
+                        <span class="text-slate-400">-</span>
+                        {{"{{"}} end {{"}}"}}
+                        {{- else}}
+                        {{"{{"}} .{{.Name}} {{"}}"}}
+                        {{- end}}
+                    </td>
                 </tr>
                 {{- end}}
             </tbody>
