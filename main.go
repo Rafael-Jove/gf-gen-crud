@@ -48,6 +48,7 @@ type FieldInfo struct {
 	HTMLType   string   // HTML input type: "text", "number", "date", "datetime-local", "time", "checkbox"
 	IsTextarea bool     // true = render as <textarea> (TEXT/LONGTEXT/JSON columns)
 	EnumValues []string // non-empty = render as <select> with these options
+	IsJson     bool     // true = JSON column
 }
 
 type NavItem struct {
@@ -165,6 +166,7 @@ type DBColMeta struct {
 	HTMLType   string
 	IsTextarea bool
 	EnumValues []string
+	IsJson     bool
 }
 
 // parseMySQLLink parses a GoFrame MySQL link string:
@@ -245,7 +247,11 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 			continue
 		}
 		colTypeLow := strings.ToLower(colType)
+		colNameLow := strings.ToLower(colName)
 		meta := DBColMeta{HTMLType: "text"}
+		if strings.Contains(colTypeLow, "json") || strings.Contains(colNameLow, "json") || strings.Contains(colNameLow, "metadata") {
+			meta.IsJson = true
+		}
 		switch {
 		case strings.HasPrefix(colTypeLow, "enum("):
 			// enum('val1','val2') → ["val1","val2"]
@@ -465,12 +471,14 @@ type Get{{.ShortName}}Res struct {
 	Data interface{} ` + "`" + `json:"data"` + "`" + `
 }
 
-// ---------- Create ----------
-
 type Create{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}" method:"post" tags:"{{.StructName}}" summary:"Buat {{.ShortName}} baru"` + "`" + `
 {{- range .FormFields}}
+	{{- if eq .HTMLType "file"}}
+	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" v:"required#{{.Name}} wajib diisi"` + "`" + `
+	{{- else}}
 	{{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}" v:"required#{{.Name}} wajib diisi"` + "`" + `
+	{{- end}}
 {{- end}}
 }
 
@@ -484,7 +492,11 @@ type Update{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}" method:"post" tags:"{{.StructName}}" summary:"Update {{.ShortName}}"` + "`" + `
 	Id     uint64 ` + "`" + `json:"id" v:"required#ID wajib diisi"` + "`" + `
 {{- range .FormFields}}
+	{{- if eq .HTMLType "file"}}
+	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
+	{{- else}}
 	{{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
+	{{- end}}
 {{- end}}
 }
 
@@ -690,7 +702,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                         {{- end}}
                                     </select>
                                     {{- else if .IsTextarea}}
-                                    <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="Masukkan {{.Name}}...">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} end {{"}}"}}</textarea>
+                                    <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} else {{"}}"}}{{if .IsJson}}{}{{end}}{{"{{"}} end {{"}}"}}</textarea>
                                     {{- else if eq .HTMLType "file"}}
                                     <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                                     {{- else if eq .HTMLType "checkbox"}}
@@ -800,7 +812,7 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
                     {{- end}}
                 </select>
                 {{- else if .IsTextarea}}
-                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
+                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
                 {{- else if eq .HTMLType "file"}}
                 <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 {{- else if eq .HTMLType "checkbox"}}
@@ -1093,6 +1105,9 @@ var ctrlCreateTemplate = template.Must(template.New("ctrl_create").Parse(`packag
 
 import (
 	"context"
+{{- if .HasUpload}}
+	"io"
+{{- end}}
 
 	"github.com/gogf/gf/v2/net/ghttp"
 
@@ -1102,9 +1117,25 @@ import (
 )
 
 func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{{.ShortName}}Req) (res *v1.Create{{.ShortName}}Res, err error) {
+	{{- range .FormFields}}
+	{{- if eq .HTMLType "file"}}
+	var {{.JsonTag}}Bytes []byte
+	if req.{{.Name}} != nil {
+		if f, errOpen := req.{{.Name}}.Open(); errOpen == nil {
+			{{.JsonTag}}Bytes, _ = io.ReadAll(f)
+			_ = f.Close()
+		}
+	}
+	{{- end}}
+	{{- end}}
+
 	_, err = service.{{.StructName}}().Create(ctx, do.{{.StructName}}{
 		{{- range .FormFields}}
+		{{- if eq .HTMLType "file"}}
+		{{.Name}}: {{.JsonTag}}Bytes,
+		{{- else}}
 		{{.Name}}: req.{{.Name}},
+		{{- end}}
 		{{- end}}
 	})
 	if err != nil {
@@ -1122,6 +1153,11 @@ var ctrlUpdateTemplate = template.Must(template.New("ctrl_update").Parse(`packag
 
 import (
 	"context"
+{{- if .HasUpload}}
+	"io"
+
+	"github.com/gogf/gf/v2/frame/g"
+{{- end}}
 
 	"github.com/gogf/gf/v2/net/ghttp"
 
@@ -1131,9 +1167,27 @@ import (
 )
 
 func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{{.ShortName}}Req) (res *v1.Update{{.ShortName}}Res, err error) {
+	{{- range .FormFields}}
+	{{- if eq .HTMLType "file"}}
+	var {{.JsonTag}}Bytes []byte
+	var has{{.Name}}Upload bool
+	if req.{{.Name}} != nil {
+		if f, errOpen := req.{{.Name}}.Open(); errOpen == nil {
+			{{.JsonTag}}Bytes, _ = io.ReadAll(f)
+			_ = f.Close()
+			has{{.Name}}Upload = true
+		}
+	}
+	{{- end}}
+	{{- end}}
+
 	err = service.{{.StructName}}().Update(ctx, req.Id, do.{{.StructName}}{
 		{{- range .FormFields}}
+		{{- if eq .HTMLType "file"}}
+		{{.Name}}: g.Conditional(has{{.Name}}Upload, {{.JsonTag}}Bytes, nil), // Only update file if new one is uploaded
+		{{- else}}
 		{{.Name}}: req.{{.Name}},
+		{{- end}}
 		{{- end}}
 	})
 	if err != nil {
@@ -1412,6 +1466,7 @@ echo === Done! ===
 						fields[i].HTMLType = meta.HTMLType
 						fields[i].IsTextarea = meta.IsTextarea
 						fields[i].EnumValues = meta.EnumValues
+						fields[i].IsJson = meta.IsJson
 						if meta.HTMLType == "file" {
 							info.HasUpload = true
 						}
