@@ -68,6 +68,7 @@ type TableInfo struct {
 	ModuleName string // Module name from go.mod
 	NavItems   []NavItem
 	HasGtime   bool // true jika ada field bertipe gtime.Time
+	HasUpload  bool // true jika ada field bertipe file
 }
 
 // CmdControllerInfo holds info to build cmd.go
@@ -144,6 +145,8 @@ func shortName(s string) string {
 
 func goTypeToHTMLInput(t string) string {
 	switch {
+	case strings.Contains(t, "[]byte"):
+		return "file"
 	case strings.Contains(t, "int"):
 		return "number"
 	case strings.Contains(t, "float"):
@@ -255,10 +258,11 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 			}
 			meta.HTMLType = "select"
 		case strings.Contains(colTypeLow, "text"),
-			strings.Contains(colTypeLow, "json"),
-			strings.Contains(colTypeLow, "blob"):
+			strings.Contains(colTypeLow, "json"):
 			meta.IsTextarea = true
 			meta.HTMLType = "textarea"
+		case strings.Contains(colTypeLow, "blob"):
+			meta.HTMLType = "file"
 		case strings.Contains(colTypeLow, "datetime"),
 			strings.Contains(colTypeLow, "timestamp"):
 			meta.HTMLType = "datetime-local"
@@ -268,6 +272,9 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 			meta.HTMLType = "time"
 		case strings.HasPrefix(colTypeLow, "year"):
 			meta.HTMLType = "number"
+		case strings.Contains(colTypeLow, "bool"),
+			strings.Contains(colTypeLow, "tinyint(1)"):
+			meta.HTMLType = "checkbox"
 		case strings.Contains(colTypeLow, "int"):
 			meta.HTMLType = "number"
 		case strings.Contains(colTypeLow, "float"),
@@ -275,9 +282,6 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 			strings.Contains(colTypeLow, "decimal"),
 			strings.Contains(colTypeLow, "numeric"):
 			meta.HTMLType = "number"
-		case strings.Contains(colTypeLow, "bool"),
-			strings.Contains(colTypeLow, "tinyint(1)"):
-			meta.HTMLType = "checkbox"
 		}
 		result[colName] = meta
 	}
@@ -673,7 +677,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                 {{"{{"}} if .Edit {{"}}"}}Perbarui informasi data yang sudah ada.{{"{{"}} else {{"}}"}}Masukkan informasi untuk membuat data baru.{{"{{"}} end {{"}}"}}
                             </p>
 
-                            <form method="POST" action="/{{.TableName}}{{"{{"}} if .Edit {{"}}"}}/{{"{{"}} .Edit.Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4">
+                            <form method="POST" action="/{{.TableName}}{{"{{"}} if .Edit {{"}}"}}/{{"{{"}} .Edit.Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
                                 {{- range .FormFields}}
                                 <div>
                                     <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
@@ -687,6 +691,8 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                     </select>
                                     {{- else if .IsTextarea}}
                                     <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="Masukkan {{.Name}}...">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} end {{"}}"}}</textarea>
+                                    {{- else if eq .HTMLType "file"}}
+                                    <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                                     {{- else if eq .HTMLType "checkbox"}}
                                     <label class="flex items-center gap-2 cursor-pointer">
                                         <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if $.Edit {{"}}"}}{{"{{"}} if $.Edit.{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
@@ -781,7 +787,7 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 w-full max-w-md">
         <h1 class="text-xl font-bold text-slate-900 mb-2">{{"{{"}} if .Id {{"}}"}}Edit{{"{{"}} else {{"}}"}}Tambah{{"{{"}} end {{"}}"}} {{.ShortName}}</h1>
         <p class="text-sm text-slate-500 mb-6">Isi formulir berikut untuk menyimpan data.</p>
-        <form method="POST" action="/{{.TableName}}{{"{{"}} if .Id {{"}}"}}/{{"{{"}} .Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4">
+        <form method="POST" action="/{{.TableName}}{{"{{"}} if .Id {{"}}"}}/{{"{{"}} .Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
             {{- range .FormFields}}
             <div>
                 <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
@@ -795,6 +801,8 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
                 </select>
                 {{- else if .IsTextarea}}
                 <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
+                {{- else if eq .HTMLType "file"}}
+                <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                 {{- else if eq .HTMLType "checkbox"}}
                 <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
@@ -1404,6 +1412,9 @@ echo === Done! ===
 						fields[i].HTMLType = meta.HTMLType
 						fields[i].IsTextarea = meta.IsTextarea
 						fields[i].EnumValues = meta.EnumValues
+						if meta.HTMLType == "file" {
+							info.HasUpload = true
+						}
 					}
 				}
 				return fields
