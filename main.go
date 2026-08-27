@@ -20,6 +20,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -1097,6 +1098,85 @@ func main() {
 	root, _ := filepath.Abs(".")
 	entityDir := filepath.Join(root, "internal", "model", "entity")
 	moduleName := readModuleName(root)
+
+	// Detect database driver from config.yaml
+	configPaths := []string{
+		filepath.Join(root, "manifest", "config", "config.yaml"),
+		filepath.Join(root, "config", "config.yaml"),
+		filepath.Join(root, "config.yaml"),
+	}
+	var configData []byte
+	for _, p := range configPaths {
+		if d, err := os.ReadFile(p); err == nil {
+			configData = d
+			break
+		}
+	}
+
+	var driverType string
+	if len(configData) > 0 {
+		reLink := regexp.MustCompile(`link:\s*["']?([a-zA-Z0-9]+):`)
+		m := reLink.FindSubmatch(configData)
+		if len(m) > 1 {
+			driverType = strings.ToLower(string(m[1]))
+		}
+	}
+
+	// Fallback to interactive terminal choice if not detected
+	if driverType == "" {
+		fmt.Println("Database driver tidak terdeteksi otomatis dari konfigurasi.")
+		fmt.Println("Pilih driver database yang ingin Anda gunakan di project ini:")
+		fmt.Println("  [1] mysql  - MySQL / MariaDB (Default)")
+		fmt.Println("  [2] pgsql  - PostgreSQL")
+		fmt.Println("  [3] sqlite - SQLite")
+		fmt.Println("  [4] mssql  - SQL Server")
+		fmt.Println("  [5] oracle - Oracle")
+		fmt.Println("  [6] Lewatkan (Skip)")
+		fmt.Print("Pilihan Anda (1-6): ")
+
+		var choice string
+		_, _ = fmt.Scanln(&choice)
+		switch strings.TrimSpace(choice) {
+		case "1":
+			driverType = "mysql"
+		case "2":
+			driverType = "pgsql"
+		case "3":
+			driverType = "sqlite"
+		case "4":
+			driverType = "mssql"
+		case "5":
+			driverType = "oracle"
+		default:
+			fmt.Println("Melewati konfigurasi driver database.")
+		}
+		fmt.Println()
+	}
+
+	// Auto-import driver to main.go and run go get
+	if driverType != "" {
+		mainPath := filepath.Join(root, "main.go")
+		if mainData, err := os.ReadFile(mainPath); err == nil {
+			mainStr := string(mainData)
+			driverImport := `_ "github.com/gogf/gf/contrib/drivers/` + driverType + `/v2"`
+			if !strings.Contains(mainStr, driverImport) {
+				// Inject driver import right after "import ("
+				reImport := regexp.MustCompile(`import\s*\(`)
+				if reImport.MatchString(mainStr) {
+					mainStr = reImport.ReplaceAllString(mainStr, "import (\n\t"+driverImport)
+					_ = os.WriteFile(mainPath, []byte(mainStr), 0644)
+					fmt.Printf("=== Automatically added %s driver import to main.go ===\n", driverType)
+
+					// Run go get to download the package
+					fmt.Printf("=== Fetching database driver package: %s ===\n", driverType)
+					cmd := exec.Command("go", "get", "github.com/gogf/gf/contrib/drivers/"+driverType+"/v2")
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
+					_ = cmd.Run()
+				}
+			}
+		}
+	}
 
 	// Generate helper gen.bat automatically in project root if it does not exist
 	genBatPath := filepath.Join(root, "gen.bat")
