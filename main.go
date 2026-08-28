@@ -684,6 +684,18 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
 	"add": func(a, b int) int {
 		return a + b
 	},
+	"subtract": func(a, b int) int {
+		return a - b
+	},
+	"multiply": func(a, b int) int {
+		return a * b
+	},
+	"min": func(a, b int) int {
+		if a < b {
+			return a
+		}
+		return b
+	},
 	"abbrev": abbrev,
 }).Parse(`<!DOCTYPE html>
 <html lang="id">
@@ -806,6 +818,12 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                             />
                         </div>
                         <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <select name="page_size" onchange="this.form.submit()" class="px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white text-slate-700">
+                                <option value="10" {{"{{"}} if eq .PageSize 10 {{"}}"}}selected{{"{{"}} end {{"}}"}}>10 per hal</option>
+                                <option value="20" {{"{{"}} if eq .PageSize 20 {{"}}"}}selected{{"{{"}} end {{"}}"}}>20 per hal</option>
+                                <option value="50" {{"{{"}} if eq .PageSize 50 {{"}}"}}selected{{"{{"}} end {{"}}"}}>50 per hal</option>
+                                <option value="100" {{"{{"}} if eq .PageSize 100 {{"}}"}}selected{{"{{"}} end {{"}}"}}>100 per hal</option>
+                            </select>
                             <button type="submit" class="flex-1 sm:flex-initial px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-xl transition-all">
                                 Filter
                             </button>
@@ -873,6 +891,34 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                 {{"{{"}}end{{"}}"}}
                             </tbody>
                         </table>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+                        <div class="text-sm text-slate-500">
+                            Menampilkan <span class="font-semibold text-slate-800">{{"{{"}}add (multiply (subtract .Page 1) .PageSize) 1{{"}}"}}</span> - <span class="font-semibold text-slate-800">{{"{{"}}min (multiply .Page .PageSize) .Total{{"}}"}}</span> dari <span class="font-semibold text-slate-800">{{"{{"}}.Total{{"}}"}}</span> data
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            {{"{{"}} if gt .Page 1 {{"}}"}}
+                            <a href="?page={{"{{"}}subtract .Page 1{{"}}"}}&page_size={{"{{"}}.PageSize{{"}}"}}&keyword={{"{{"}}.Keyword{{"}}"}}" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs rounded-xl transition-all">
+                                Sebelumnya
+                            </a>
+                            {{"{{"}} else {{"}}"}}
+                            <span class="px-4 py-2 bg-slate-50 text-slate-300 font-semibold text-xs rounded-xl cursor-not-allowed">
+                                Sebelumnya
+                            </span>
+                            {{"{{"}} end {{"}}"}}
+
+                            {{"{{"}} if lt (multiply .Page .PageSize) .Total {{"}}"}}
+                            <a href="?page={{"{{"}}add .Page 1{{"}}"}}&page_size={{"{{"}}.PageSize{{"}}"}}&keyword={{"{{"}}.Keyword{{"}}"}}" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition-all">
+                                Berikutnya
+                            </a>
+                            {{"{{"}} else {{"}}"}}
+                            <span class="px-4 py-2 bg-slate-50 text-slate-300 font-semibold text-xs rounded-xl cursor-not-allowed">
+                                Berikutnya
+                            </span>
+                            {{"{{"}} end {{"}}"}}
+                        </div>
                     </div>
                 </div>
             </main>
@@ -1302,7 +1348,7 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
                 {{"{{"}}range .NavItems{{"}}"}}
                 <a href="/{{"{{"}}.TableName{{"}}"}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200">
                     <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        {{"{{"}}abbrev .Name{{"}}"}}
+                        {{"{{"}}.Abbrev{{"}}"}}
                     </span>
                     <span class="sidebar-text whitespace-nowrap">{{"{{"}}.Name{{"}}"}}</span>
                 </a>
@@ -1360,7 +1406,7 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
                         {{"{{"}}range .NavItems{{"}}"}}
                         <a href="/{{"{{"}}.TableName{{"}}"}}" class="group bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-indigo-500/50 transition-all">
                             <div class="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                {{"{{"}} abbrev .Name {{"}}"}}
+                                {{"{{"}} .Abbrev {{"}}"}}
                             </div>
                             <h4 class="text-lg font-bold text-slate-900 mt-4 group-hover:text-indigo-600 transition-all">{{"{{"}}.Name{{"}}"}}</h4>
                             <p class="text-xs text-slate-500 mt-1">Kelola data {{"{{"}}.Name{{"}}"}} (tambah, edit, detail, hapus).</p>
@@ -1368,6 +1414,213 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
                         {{"{{"}}end{{"}}"}}
                     </div>
                 </div>
+            </main>
+        </div>
+    </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.toggle('w-18');
+            if (isCollapsed) {
+                sidebar.classList.remove('w-64');
+                localStorage.setItem('sidebar-collapsed', 'true');
+            } else {
+                sidebar.classList.add('w-64');
+                localStorage.setItem('sidebar-collapsed', 'false');
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.remove('w-64');
+                    sidebar.classList.add('w-18');
+                }
+            }
+        });
+    </script>
+`))
+
+var queryHTMLTemplate = template.Must(template.New("query_html").Funcs(template.FuncMap{
+	"slice": func(s string, start, end int) string {
+		if start < 0 {
+			start = 0
+		}
+		if end > len(s) {
+			end = len(s)
+		}
+		if start > end {
+			return ""
+		}
+		return s[start:end]
+	},
+	"abbrev": abbrev,
+}).Parse(`<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Query Console</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #sidebar.w-18 { width: 4.5rem !important; }
+        #sidebar.w-18 .sidebar-text { display: none !important; }
+        #sidebar.w-18 .nav-item { justify-content: center !important; }
+        #sidebar.w-18 .nav-item-icon { margin-right: 0 !important; }
+        #sidebar.w-18 .logo-container { justify-content: center !important; }
+        #sidebar.w-18 #toggle-button-collapsed { display: flex !important; }
+        #sidebar.w-18 .footer-container { justify-content: center !important; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <div class="flex h-screen overflow-hidden">
+        
+        <!-- Sidebar Navigation (Desktop) -->
+        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-64 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
+            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+                        Q
+                    </div>
+                    <span class="sidebar-text text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
+                </div>
+                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
+                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
+                {{"{{"}}range .NavItems{{"}}"}}
+                <a href="/{{"{{"}}.TableName{{"}}"}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{"{{"}}if .Active{{"}}"}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{"{{"}}else{{"}}"}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{"{{"}}end{{"}}"}}">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{"{{"}}if .Active{{"}}"}}bg-indigo-500 text-white{{"{{"}}else{{"}}"}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{"{{"}}end{{"}}"}}">
+                        {{"{{"}}.Abbrev{{"}}"}}
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">{{"{{"}}.Name{{"}}"}}</span>
+                </a>
+                {{"{{"}}end{{"}}"}}
+            </div>
+            <div class="footer-container p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2 overflow-hidden">
+                <span class="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="sidebar-text whitespace-nowrap">Sistem Aktif (Port: 8000)</span>
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <div class="flex-1 flex flex-col overflow-y-auto">
+            
+            <!-- Mobile Header -->
+            <header class="md:hidden bg-white border-b border-slate-200 h-16 px-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-base">
+                        Q
+                    </div>
+                    <span class="font-bold text-slate-900">Query Console</span>
+                </div>
+                <div class="text-xs text-slate-500 flex items-center space-x-2">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span>Aktif</span>
+                </div>
+            </header>
+
+            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-12 max-w-7xl">
+                <!-- Mobile Navigation Tabs -->
+                <div class="flex md:hidden overflow-x-auto py-2 mb-8 border-b border-slate-200 space-x-2 scrollbar-none">
+                    {{"{{"}}range .NavItems{{"}}"}}
+                    <a href="/{{"{{"}}.TableName{{"}}"}}" class="whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all {{"{{"}}if .Active{{"}}"}}bg-indigo-600 text-white{{"{{"}}else{{"}}"}}bg-slate-100 text-slate-600 hover:bg-slate-200{{"{{"}}end{{"}}"}}">
+                        {{"{{"}}.Name{{"}}"}}
+                    </a>
+                    {{"{{"}}end{{"}}"}}
+                </div>
+
+                <!-- Header Section -->
+                <div class="mb-6">
+                    <h1 class="text-2xl font-bold text-slate-900 font-bold">Query Console</h1>
+                    <p class="text-sm text-slate-500 mt-0.5">Jalankan perintah SQL kustom langsung ke database sistem.</p>
+                </div>
+
+                <!-- Query Form -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
+                    <form method="POST" action="/query" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1.5">SQL Query</label>
+                            <textarea 
+                                name="sql" 
+                                rows="6" 
+                                placeholder="SELECT * FROM user LIMIT 10;" 
+                                class="w-full px-4 py-3 font-mono text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-slate-50"
+                            >{{"{{"}} .Sql {{"}}"}}</textarea>
+                        </div>
+                        <div class="flex items-center justify-end">
+                            <button type="submit" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-md shadow-indigo-600/10 transition-all flex items-center gap-2">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Jalankan Query
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Results Section -->
+                {{"{{"}} if .Error {{"}}"}}
+                <div class="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-5 mb-6 flex items-start gap-3">
+                    <svg class="h-5 w-5 text-rose-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                        <h4 class="font-bold text-rose-950 text-sm">Query Error</h4>
+                        <p class="text-xs font-mono mt-1 break-all">{{"{{"}} .Error {{"}}"}}</p>
+                    </div>
+                </div>
+                {{"{{"}} else if .Columns {{"}}"}}
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <h2 class="font-bold text-slate-900 font-bold">Hasil Query ({{"{{"}} len .Rows {{"}}"}} baris)</h2>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm min-w-[800px]">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-100">
+                                    {{"{{"}} range .Columns {{"}}"}}
+                                    <th class="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{{"{{"}} . {{"}}"}}</th>
+                                    {{"{{"}} end {{"}}"}}
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {{"{{"}} range $row := .Rows {{"}}"}}
+                                <tr class="hover:bg-slate-50/50 transition-colors">
+                                    {{"{{"}} range $col := $.Columns {{"}}"}}
+                                    <td class="px-6 py-4 text-slate-700 font-medium whitespace-nowrap overflow-hidden max-w-[300px] text-ellipsis">
+                                        {{"{{"}} index $row $col {{"}}"}}
+                                    </td>
+                                    {{"{{"}} end {{"}}"}}
+                                </tr>
+                                {{"{{"}} end {{"}}"}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {{"{{"}} else if .Sql {{"}}"}}
+                <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-5 mb-6 flex items-start gap-3">
+                    <svg class="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                        <h4 class="font-bold text-emerald-950 text-sm">Query Sukses</h4>
+                        <p class="text-xs mt-1">Perintah SQL telah berhasil dieksekusi tanpa hasil data baris (misal INSERT/UPDATE/DELETE).</p>
+                    </div>
+                </div>
+                {{"{{"}} end {{"}}"}}
             </main>
         </div>
     </div>
@@ -1476,10 +1729,11 @@ func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.Sh
 
 	r := ghttp.RequestFromCtx(ctx)
 	r.Response.WriteTpl("{{.TableName}}/list.html", g.Map{
-		"List":    list,
-		"Total":   total,
-		"Page":    req.Page,
-		"Keyword": req.Keyword,
+		"List":     list,
+		"Total":    total,
+		"Page":     req.Page,
+		"PageSize": req.PageSize,
+		"Keyword":  req.Keyword,
 	})
 	r.Exit()
 	return nil, nil
@@ -1639,7 +1893,9 @@ func (c *ControllerV1) Delete{{.ShortName}}(ctx context.Context, req *v1.Delete{
 // Cmd/Routing Template
 // ============================================================
 
-var cmdTemplate = template.Must(template.New("cmd").Parse(`package cmd
+var cmdTemplate = template.Must(template.New("cmd").Funcs(template.FuncMap{
+	"abbrev": abbrev,
+}).Parse(`package cmd
 
 import (
 	"context"
@@ -1687,9 +1943,62 @@ var (
 						"NavItems": g.Slice{
 {{- range .Controllers}}
 {{- if .HasHTML}}
-							g.Map{"Name": "{{.ShortName}}", "TableName": "{{.TableName}}", "Active": false},
+							g.Map{"Name": "{{.ShortName}}", "TableName": "{{.TableName}}", "Active": false, "Abbrev": "{{abbrev .ShortName}}"},
 {{- end}}
 {{- end}}
+							g.Map{"Name": "Query Console", "TableName": "query", "Active": false, "Abbrev": "QC"},
+						},
+					})
+					r.Exit()
+				})
+			})
+
+			s.Group("/", func(group *ghttp.RouterGroup) {
+				group.GET("/query", func(r *ghttp.Request) {
+					r.Response.WriteTpl("query.html", g.Map{
+						"NavItems": g.Slice{
+{{- range .Controllers}}
+{{- if .HasHTML}}
+							g.Map{"Name": "{{.ShortName}}", "TableName": "{{.TableName}}", "Active": false, "Abbrev": "{{abbrev .ShortName}}"},
+{{- end}}
+{{- end}}
+							g.Map{"Name": "Query Console", "TableName": "query", "Active": true, "Abbrev": "QC"},
+						},
+					})
+					r.Exit()
+				})
+				group.POST("/query", func(r *ghttp.Request) {
+					sqlStr := r.Get("sql").String()
+					var (
+						columns []string
+						rows    []g.Map
+						errStr  string
+					)
+					if sqlStr != "" {
+						res, err := g.DB().GetAll(r.Context(), sqlStr)
+						if err != nil {
+							errStr = err.Error()
+						} else if len(res) > 0 {
+							for k := range res[0] {
+								columns = append(columns, k)
+							}
+							for _, rMap := range res {
+								rows = append(rows, rMap.Map())
+							}
+						}
+					}
+					r.Response.WriteTpl("query.html", g.Map{
+						"Sql":     sqlStr,
+						"Columns": columns,
+						"Rows":    rows,
+						"Error":   errStr,
+						"NavItems": g.Slice{
+{{- range .Controllers}}
+{{- if .HasHTML}}
+							g.Map{"Name": "{{.ShortName}}", "TableName": "{{.TableName}}", "Active": false, "Abbrev": "{{abbrev .ShortName}}"},
+{{- end}}
+{{- end}}
+							g.Map{"Name": "Query Console", "TableName": "query", "Active": true, "Abbrev": "QC"},
 						},
 					})
 					r.Exit()
@@ -1918,6 +2227,11 @@ echo === Done! ===
 				Active:    ent.TableName == info.TableName,
 			})
 		}
+		navItems = append(navItems, NavItem{
+			Name:      "Query Console",
+			TableName: "query",
+			Active:    info.TableName == "query",
+		})
 		info.NavItems = navItems
 
 		fmt.Printf("=== Generating: %s (%s) ===\n", info.StructName, info.TableName)
@@ -2053,9 +2367,9 @@ echo === Done! ===
 		})
 	}
 
-	// 4.9. Generate Root Index HTML
+	// 4.9. Generate Root Index & Query Console HTML
 	if !*skipView {
-		fmt.Println("=== Generating index.html ===")
+		fmt.Println("=== Generating index.html & query.html ===")
 		var indexNavItems []NavItem
 		for _, ent := range allEntities {
 			indexNavItems = append(indexNavItems, NavItem{
@@ -2064,14 +2378,35 @@ echo === Done! ===
 				Active:    false,
 			})
 		}
+		indexNavItems = append(indexNavItems, NavItem{
+			Name:      "Query Console",
+			TableName: "query",
+			Active:    false,
+		})
+
+		tplDir := filepath.Join(root, "resource", "template")
+
 		indexContent, err := renderTemplate(indexHTMLTemplate, map[string]interface{}{
 			"NavItems": indexNavItems,
 		})
 		if err == nil {
-			tplDir := filepath.Join(root, "resource", "template")
 			_ = writeFile(filepath.Join(tplDir, "index.html"), indexContent, true)
 		} else {
 			fmt.Printf("Gagal merender index.html: %v\n", err)
+		}
+
+		// Renders query.html
+		queryNavItems := make([]NavItem, len(indexNavItems))
+		copy(queryNavItems, indexNavItems)
+		queryNavItems[len(queryNavItems)-1].Active = true // Make Query Console active
+
+		queryContent, err := renderTemplate(queryHTMLTemplate, map[string]interface{}{
+			"NavItems": queryNavItems,
+		})
+		if err == nil {
+			_ = writeFile(filepath.Join(tplDir, "query.html"), queryContent, true)
+		} else {
+			fmt.Printf("Gagal merender query.html: %v\n", err)
 		}
 	}
 
