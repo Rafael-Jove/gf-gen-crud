@@ -23,6 +23,20 @@ import (
 {{- end}}
 )
 
+// ---------- Data Item Model (with correct JSON types) ----------
+
+type {{.ShortName}}Field struct {
+	Value  interface{} ` + "`" + `json:"value"` + "`" + `
+	Type   string      ` + "`" + `json:"type"` + "`" + `
+	Values []string    ` + "`" + `json:"values,omitempty"` + "`" + `
+}
+
+type {{.ShortName}}Item struct {
+{{- range .Fields}}
+	{{.Name}} {{$.ShortName}}Field ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
+{{- end}}
+}
+
 // ---------- List ----------
 
 type List{{.ShortName}}Req struct {
@@ -33,9 +47,9 @@ type List{{.ShortName}}Req struct {
 }
 
 type List{{.ShortName}}Res struct {
-	List  interface{} ` + "`" + `json:"list"` + "`" + `
-	Total int         ` + "`" + `json:"total"` + "`" + `
-	Page  int         ` + "`" + `json:"page"` + "`" + `
+	List  []{{.ShortName}}Item ` + "`" + `json:"list"` + "`" + `
+	Total int                  ` + "`" + `json:"total"` + "`" + `
+	Page  int                  ` + "`" + `json:"page"` + "`" + `
 }
 
 // ---------- Filter ----------
@@ -48,9 +62,9 @@ type Filter{{.ShortName}}Req struct {
 }
 
 type Filter{{.ShortName}}Res struct {
-	List  interface{} ` + "`" + `json:"list"` + "`" + `
-	Total int         ` + "`" + `json:"total"` + "`" + `
-	Page  int         ` + "`" + `json:"page"` + "`" + `
+	List  []{{.ShortName}}Item ` + "`" + `json:"list"` + "`" + `
+	Total int                  ` + "`" + `json:"total"` + "`" + `
+	Page  int                  ` + "`" + `json:"page"` + "`" + `
 }
 
 // ---------- Get ----------
@@ -61,7 +75,7 @@ type Get{{.ShortName}}Req struct {
 }
 
 type Get{{.ShortName}}Res struct {
-	Data interface{} ` + "`" + `json:"data"` + "`" + `
+	Data *{{.ShortName}}Item ` + "`" + `json:"data"` + "`" + `
 }
 
 type Create{{.ShortName}}Req struct {
@@ -76,7 +90,7 @@ type Create{{.ShortName}}Req struct {
 }
 
 type Create{{.ShortName}}Res struct {
-	Data interface{} ` + "`" + `json:"data"` + "`" + `
+	Data *{{.ShortName}}Item ` + "`" + `json:"data"` + "`" + `
 }
 
 // ---------- Update ----------
@@ -1240,21 +1254,90 @@ func DeleteAction(r *ghttp.Request) {
 `))
 
 var ctrlListTemplate = template.Must(template.New("ctrl_list").Parse(`package {{.TableName}}
-
-import (
-	"context"
-
-	"github.com/gogf/gf/v2/frame/g"
-	"github.com/gogf/gf/v2/net/ghttp"
-
-	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
-	"{{.ModuleName}}/internal/service"
-)
+ 
+ import (
+ 	"context"
+ 
+ 	"github.com/gogf/gf/v2/frame/g"
+ 	"github.com/gogf/gf/v2/net/ghttp"
+{{- $hasGconv := false}}
+{{- range .Fields}}
+{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}{{$hasGconv = true}}{{end}}
+{{- end}}
+{{- if $hasGconv}}
+	"github.com/gogf/gf/v2/util/gconv"
+{{- end}}
+{{- if .HasGtime}}
+ 	"github.com/gogf/gf/v2/os/gtime"
+{{- end}}
+ 
+ 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
+ 	"{{.ModuleName}}/internal/service"
+ )
 
 func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.ShortName}}Req) (res *v1.List{{.ShortName}}Res, err error) {
 	list, total, err := service.{{.StructName}}().List(ctx, req.Page, req.PageSize, req.Keyword)
 	if err != nil {
 		return nil, err
+	}
+
+	r := ghttp.RequestFromCtx(ctx)
+	// Jika client meminta JSON (misal dari Flutter)
+	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
+		var listItems []v1.{{.ShortName}}Item
+		for _, item := range list {
+			listItems = append(listItems, v1.{{.ShortName}}Item{
+				{{- range .Fields}}
+				{{.Name}}: v1.{{$.ShortName}}Field{
+					Type: "{{.DataType}}",
+					{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
+					Value: gconv.String(item.{{.Name}}),
+					{{- else if eq .HTMLType "date"}}
+					Value: func() interface{} {
+						if g.IsEmpty(item.{{.Name}}) {
+							return nil
+						}
+						return gtime.New(item.{{.Name}}).Layout("2006-01-02")
+					}(),
+					{{- else if eq .HTMLType "datetime-local"}}
+					Value: func() interface{} {
+						if g.IsEmpty(item.{{.Name}}) {
+							return nil
+						}
+						return gtime.New(item.{{.Name}}).Layout("2006-01-02 15:04:05")
+					}(),
+					{{- else if eq .HTMLType "time"}}
+					Value: func() interface{} {
+						if g.IsEmpty(item.{{.Name}}) {
+							return nil
+						}
+						return gtime.New(item.{{.Name}}).Layout("15:04:05")
+					}(),
+					{{- else}}
+					Value: item.{{.Name}},
+					{{- end}}
+					{{- if .EnumValues}}
+					Values: []string{
+						{{- range .EnumValues}}
+						"{{.}}",
+						{{- end}}
+					},
+					{{- end}}
+				},
+				{{- end}}
+			})
+		}
+		r.Response.WriteJson(g.Map{
+			"code":    0,
+			"message": "success",
+			"data": g.Map{
+				"list":  listItems,
+				"total": total,
+				"page":  req.Page,
+			},
+		})
+		r.Exit()
+		return nil, nil
 	}
 
 	startIndex := (req.Page-1)*req.PageSize + 1
@@ -1271,7 +1354,6 @@ func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.Sh
 		totalPages = 1
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
 	r.Response.WriteTpl("{{.TableName}}/list.html", g.Map{
 		"List":       list,
 		"Total":      total,
@@ -1296,6 +1378,65 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 		return nil, err
 	}
 
+	r := ghttp.RequestFromCtx(ctx)
+	// Jika client meminta JSON (misal dari Flutter)
+	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
+		var listItems []v1.{{.ShortName}}Item
+		for _, item := range list {
+			listItems = append(listItems, v1.{{.ShortName}}Item{
+				{{- range .Fields}}
+				{{.Name}}: v1.{{$.ShortName}}Field{
+					Type: "{{.DataType}}",
+					{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
+					Value: gconv.String(item.{{.Name}}),
+					{{- else if eq .HTMLType "date"}}
+					Value: func() interface{} {
+						if g.IsEmpty(item.{{.Name}}) {
+							return nil
+						}
+						return gtime.New(item.{{.Name}}).Layout("2006-01-02")
+					}(),
+					{{- else if eq .HTMLType "datetime-local"}}
+					Value: func() interface{} {
+						if g.IsEmpty(item.{{.Name}}) {
+							return nil
+						}
+						return gtime.New(item.{{.Name}}).Layout("2006-01-02 15:04:05")
+					}(),
+					{{- else if eq .HTMLType "time"}}
+					Value: func() interface{} {
+						if g.IsEmpty(item.{{.Name}}) {
+							return nil
+						}
+						return gtime.New(item.{{.Name}}).Layout("15:04:05")
+					}(),
+					{{- else}}
+					Value: item.{{.Name}},
+					{{- end}}
+					{{- if .EnumValues}}
+					Values: []string{
+						{{- range .EnumValues}}
+						"{{.}}",
+						{{- end}}
+					},
+					{{- end}}
+				},
+				{{- end}}
+			})
+		}
+		r.Response.WriteJson(g.Map{
+			"code":    0,
+			"message": "success",
+			"data": g.Map{
+				"list":  listItems,
+				"total": total,
+				"page":  req.Page,
+			},
+		})
+		r.Exit()
+		return nil, nil
+	}
+
 	startIndex := (req.Page-1)*req.PageSize + 1
 	if total == 0 {
 		startIndex = 0
@@ -1310,7 +1451,6 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 		totalPages = 1
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
 	tplData := g.Map{
 		"List":       list,
 		"Total":      total,
@@ -1340,16 +1480,26 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 `))
 
 var ctrlGetTemplate = template.Must(template.New("ctrl_get").Parse(`package {{.TableName}}
-
-import (
-	"context"
-
-	"github.com/gogf/gf/v2/frame/g"
-	"github.com/gogf/gf/v2/net/ghttp"
-
-	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
-	"{{.ModuleName}}/internal/service"
-)
+ 
+ import (
+ 	"context"
+ 
+ 	"github.com/gogf/gf/v2/frame/g"
+ 	"github.com/gogf/gf/v2/net/ghttp"
+{{- $hasGconv := false}}
+{{- range .Fields}}
+{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}{{$hasGconv = true}}{{end}}
+{{- end}}
+{{- if $hasGconv}}
+	"github.com/gogf/gf/v2/util/gconv"
+{{- end}}
+{{- if .HasGtime}}
+ 	"github.com/gogf/gf/v2/os/gtime"
+{{- end}}
+ 
+ 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
+ 	"{{.ModuleName}}/internal/service"
+ )
 
 func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.ShortName}}Req) (res *v1.Get{{.ShortName}}Res, err error) {
 	data, err := service.{{.StructName}}().Get(ctx, req.Id)
@@ -1358,6 +1508,57 @@ func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.Shor
 	}
 
 	r := ghttp.RequestFromCtx(ctx)
+	// Jika client meminta JSON (misal dari Flutter)
+	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
+		item := v1.{{.ShortName}}Item{
+			{{- range .Fields}}
+			{{.Name}}: v1.{{$.ShortName}}Field{
+				Type: "{{.DataType}}",
+				{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
+				Value: gconv.String(data.{{.Name}}),
+				{{- else if eq .HTMLType "date"}}
+				Value: func() interface{} {
+					if g.IsEmpty(data.{{.Name}}) {
+						return nil
+					}
+					return gtime.New(data.{{.Name}}).Layout("2006-01-02")
+				}(),
+				{{- else if eq .HTMLType "datetime-local"}}
+				Value: func() interface{} {
+					if g.IsEmpty(data.{{.Name}}) {
+						return nil
+					}
+					return gtime.New(data.{{.Name}}).Layout("2006-01-02 15:04:05")
+				}(),
+				{{- else if eq .HTMLType "time"}}
+				Value: func() interface{} {
+					if g.IsEmpty(data.{{.Name}}) {
+						return nil
+					}
+					return gtime.New(data.{{.Name}}).Layout("15:04:05")
+				}(),
+				{{- else}}
+				Value: data.{{.Name}},
+				{{- end}}
+				{{- if .EnumValues}}
+				Values: []string{
+					{{- range .EnumValues}}
+					"{{.}}",
+					{{- end}}
+				},
+				{{- end}}
+			},
+			{{- end}}
+		}
+		r.Response.WriteJson(g.Map{
+			"code":    0,
+			"message": "success",
+			"data":    item,
+		})
+		r.Exit()
+		return nil, nil
+	}
+
 	r.Response.WriteTpl("{{.TableName}}/detail.html", g.Map{
 		{{- range .Fields}}
 		"{{.Name}}": data.{{.Name}},
@@ -1369,19 +1570,30 @@ func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.Shor
 `))
 
 var ctrlCreateTemplate = template.Must(template.New("ctrl_create").Parse(`package {{.TableName}}
-
-import (
-	"context"
-{{- if .HasUpload}}
-	"io"
+ 
+ import (
+ 	"context"
+{{- $hasGconv := false}}
+{{- range .Fields}}
+{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}{{$hasGconv = true}}{{end}}
 {{- end}}
-
-	"github.com/gogf/gf/v2/net/ghttp"
-
-	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
-	"{{.ModuleName}}/internal/model/do"
-	"{{.ModuleName}}/internal/service"
-)
+{{- if $hasGconv}}
+	"github.com/gogf/gf/v2/util/gconv"
+{{- end}}
+{{- if .HasUpload}}
+ 	"io"
+{{- end}}
+ 
+ 	"github.com/gogf/gf/v2/frame/g"
+ 	"github.com/gogf/gf/v2/net/ghttp"
+{{- if .HasGtime}}
+ 	"github.com/gogf/gf/v2/os/gtime"
+{{- end}}
+ 
+ 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
+ 	"{{.ModuleName}}/internal/model/do"
+ 	"{{.ModuleName}}/internal/service"
+ )
 
 func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{{.ShortName}}Req) (res *v1.Create{{.ShortName}}Res, err error) {
 	createData := do.{{.StructName}}{
@@ -1404,12 +1616,63 @@ func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{
 	{{- end}}
 	{{- end}}
 
-	_, err = service.{{.StructName}}().Create(ctx, createData)
+	data, err := service.{{.StructName}}().Create(ctx, createData)
 	if err != nil {
 		return nil, err
 	}
 
 	r := ghttp.RequestFromCtx(ctx)
+	// Jika client meminta JSON (misal dari Flutter)
+	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
+		item := v1.{{.ShortName}}Item{
+			{{- range .Fields}}
+			{{.Name}}: v1.{{$.ShortName}}Field{
+				Type: "{{.DataType}}",
+				{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
+				Value: gconv.String(data.{{.Name}}),
+				{{- else if eq .HTMLType "date"}}
+				Value: func() interface{} {
+					if g.IsEmpty(data.{{.Name}}) {
+						return nil
+					}
+					return gtime.New(data.{{.Name}}).Layout("2006-01-02")
+				}(),
+				{{- else if eq .HTMLType "datetime-local"}}
+				Value: func() interface{} {
+					if g.IsEmpty(data.{{.Name}}) {
+						return nil
+					}
+					return gtime.New(data.{{.Name}}).Layout("2006-01-02 15:04:05")
+				}(),
+				{{- else if eq .HTMLType "time"}}
+				Value: func() interface{} {
+					if g.IsEmpty(data.{{.Name}}) {
+						return nil
+					}
+					return gtime.New(data.{{.Name}}).Layout("15:04:05")
+				}(),
+				{{- else}}
+				Value: data.{{.Name}},
+				{{- end}}
+				{{- if .EnumValues}}
+				Values: []string{
+					{{- range .EnumValues}}
+					"{{.}}",
+					{{- end}}
+				},
+				{{- end}}
+			},
+			{{- end}}
+		}
+		r.Response.WriteJson(g.Map{
+			"code":    0,
+			"message": "success",
+			"data":    item,
+		})
+		r.Exit()
+		return nil, nil
+	}
+
 	r.Response.RedirectTo("/{{.TableName}}")
 	r.Exit()
 	return nil, nil
@@ -1424,6 +1687,7 @@ import (
 	"io"
 {{- end}}
 
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
@@ -1458,6 +1722,16 @@ func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{
 	}
 
 	r := ghttp.RequestFromCtx(ctx)
+	// Jika client meminta JSON (misal dari Flutter)
+	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
+		r.Response.WriteJson(g.Map{
+			"code":    0,
+			"message": "success",
+		})
+		r.Exit()
+		return nil, nil
+	}
+
 	r.Response.RedirectTo("/{{.TableName}}")
 	r.Exit()
 	return nil, nil
@@ -1469,6 +1743,7 @@ var ctrlDeleteTemplate = template.Must(template.New("ctrl_delete").Parse(`packag
 import (
 	"context"
 
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
@@ -1482,6 +1757,16 @@ func (c *ControllerV1) Delete{{.ShortName}}(ctx context.Context, req *v1.Delete{
 	}
 
 	r := ghttp.RequestFromCtx(ctx)
+	// Jika client meminta JSON (misal dari Flutter)
+	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
+		r.Response.WriteJson(g.Map{
+			"code":    0,
+			"message": "success",
+		})
+		r.Exit()
+		return nil, nil
+	}
+
 	r.Response.RedirectTo("/{{.TableName}}")
 	r.Exit()
 	return nil, nil

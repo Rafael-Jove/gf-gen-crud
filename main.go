@@ -7,6 +7,7 @@
 //   - Rebuilds internal/cmd/cmd.go to register routes automatically.
 //
 // Usage:
+//
 //	go run ./hack/gen_crud.go
 //	go run ./hack/gen_crud.go --table=users
 //	go run ./hack/gen_crud.go --overwrite
@@ -50,6 +51,7 @@ type FieldInfo struct {
 	EnumValues  []string // non-empty = render as <select> with these options
 	IsJson      bool     // true = JSON column
 	IsFullWidth bool     // true = render full width in forms
+	DataType    string   // Simplified type: "integer", "string", "boolean", "float", "enum", "datetime", "date", "time", "text"
 }
 
 type NavItem struct {
@@ -194,6 +196,22 @@ func goTypeToHTMLInput(t string) string {
 	}
 }
 
+func goTypeToDataType(t string) string {
+	t = strings.ReplaceAll(t, "*", "")
+	switch {
+	case strings.Contains(t, "int"):
+		return "integer"
+	case strings.Contains(t, "float") || t == "float32" || t == "float64":
+		return "float"
+	case t == "bool":
+		return "boolean"
+	case strings.Contains(t, "Time"):
+		return "datetime"
+	default:
+		return "string"
+	}
+}
+
 // DBColMeta holds raw column_type info from INFORMATION_SCHEMA.
 type DBColMeta struct {
 	HTMLType    string
@@ -201,10 +219,12 @@ type DBColMeta struct {
 	EnumValues  []string
 	IsJson      bool
 	IsFullWidth bool
+	DataType    string
 }
 
 // parseMySQLLink parses a GoFrame MySQL link string:
-//   mysql:user:pass@tcp(host:port)/dbname
+//
+//	mysql:user:pass@tcp(host:port)/dbname
 func parseMySQLLink(link string) (dsn string, ok bool) {
 	link = strings.TrimSpace(link)
 	parts := strings.SplitN(link, ":", 3)
@@ -276,7 +296,7 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 		}
 		colTypeLow := strings.ToLower(colType)
 		colNameLow := strings.ToLower(colName)
-		meta := DBColMeta{HTMLType: "text"}
+		meta := DBColMeta{HTMLType: "text", DataType: "string"}
 		if strings.Contains(colTypeLow, "json") || strings.Contains(colNameLow, "json") || strings.Contains(colNameLow, "metadata") {
 			meta.IsJson = true
 			meta.IsFullWidth = true
@@ -291,33 +311,43 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 				}
 			}
 			meta.HTMLType = "select"
+			meta.DataType = "enum"
 		case strings.Contains(colTypeLow, "text"),
 			strings.Contains(colTypeLow, "json"):
 			meta.IsTextarea = true
 			meta.HTMLType = "textarea"
 			meta.IsFullWidth = true
+			meta.DataType = "text"
 		case strings.Contains(colTypeLow, "blob"):
 			meta.HTMLType = "file"
 			meta.IsFullWidth = true
+			meta.DataType = "text"
 		case strings.Contains(colTypeLow, "datetime"),
 			strings.Contains(colTypeLow, "timestamp"):
 			meta.HTMLType = "datetime-local"
+			meta.DataType = "datetime"
 		case strings.HasPrefix(colTypeLow, "date"):
 			meta.HTMLType = "date"
+			meta.DataType = "date"
 		case strings.HasPrefix(colTypeLow, "time"):
 			meta.HTMLType = "time"
+			meta.DataType = "time"
 		case strings.HasPrefix(colTypeLow, "year"):
 			meta.HTMLType = "number"
+			meta.DataType = "integer"
 		case strings.Contains(colTypeLow, "bool"),
 			strings.Contains(colTypeLow, "tinyint(1)"):
 			meta.HTMLType = "checkbox"
+			meta.DataType = "boolean"
 		case strings.Contains(colTypeLow, "int"):
 			meta.HTMLType = "number"
+			meta.DataType = "integer"
 		case strings.Contains(colTypeLow, "float"),
 			strings.Contains(colTypeLow, "double"),
 			strings.Contains(colTypeLow, "decimal"),
 			strings.Contains(colTypeLow, "numeric"):
 			meta.HTMLType = "number"
+			meta.DataType = "float"
 		}
 		reVarchar := regexp.MustCompile(`varchar\((\d+)\)`)
 		if m := reVarchar.FindStringSubmatch(colTypeLow); len(m) > 1 {
@@ -424,6 +454,7 @@ func parseEntityFile(filePath, moduleName string) (*TableInfo, error) {
 					IsSkip:   isSkip,
 					IsAudit:  isAudit,
 					HTMLType: goTypeToHTMLInput(typStr),
+					DataType: goTypeToDataType(typStr),
 				}
 				info.Fields = append(info.Fields, fi)
 				if !isAudit {
@@ -501,7 +532,10 @@ func main() {
 	overwrite := flag.Bool("overwrite", false, "Timpa file yang sudah ada")
 	viewModeFlag := flag.String("view-mode", "", "Mode view: write atau view")
 	filterTypeFlag := flag.String("filter-type", "", "Jenis filter: input, form, both, atau none")
+	interactive := flag.Bool("interactive", false, "Jalankan prompt interaktif")
 	flag.Parse()
+
+	isInitMode := !*interactive && *tableFlag == "" && *viewModeFlag == "" && *filterTypeFlag == ""
 
 	root, _ := filepath.Abs(".")
 	entityDir := filepath.Join(root, "internal", "model", "entity")
@@ -520,7 +554,7 @@ func main() {
 
 	// Mandatory interactive terminal choice for database driver
 	var driverType string
-	if !hasDriver {
+	if !hasDriver && (isInitMode || *interactive) {
 		prompt := promptui.Select{
 			Label: "Pilih driver database yang ingin Anda gunakan di project ini",
 			Items: []string{
@@ -588,7 +622,7 @@ echo === Running gf gen dao ===
 gf gen dao %*
 
 echo === Running gen_crud.go ===
-gf-gen-crud --overwrite %*
+gf-gen-crud --overwrite --interactive %*
 
 echo === Running gf gen service ===
 gf gen service
@@ -596,6 +630,15 @@ gf gen service
 echo === Done! ===
 `
 		_ = writeFile(genBatPath, genBatContent, false)
+	}
+
+	if isInitMode {
+		fmt.Println("=== Proyek berhasil di-inisialisasi! ===")
+		fmt.Println("Silakan gunakan perintah berikut untuk mulai men-generate kode CRUD:")
+		fmt.Println("  .\\gen             \u2192 Men-generate semua tabel secara interaktif")
+		fmt.Println("  .\\gen --table=xyz \u2192 Men-generate tabel tertentu secara interaktif")
+		fmt.Println("========================================")
+		os.Exit(0)
 	}
 
 	fmt.Printf("Module  : %s\n", moduleName)
@@ -624,8 +667,12 @@ echo === Done! ===
 						fields[i].EnumValues = meta.EnumValues
 						fields[i].IsJson = meta.IsJson
 						fields[i].IsFullWidth = meta.IsFullWidth
+						fields[i].DataType = meta.DataType
 						if meta.HTMLType == "file" {
 							info.HasUpload = true
+						}
+						if meta.HTMLType == "date" || meta.HTMLType == "datetime-local" || meta.HTMLType == "time" {
+							info.HasGtime = true
 						}
 					} else {
 						lowName := strings.ToLower(fi.Name)
@@ -662,46 +709,56 @@ echo === Done! ===
 	}
 
 	globalIsReadOnly := false
-	globalFilterType := "input"
+	globalFilterType := "both"
 	if !*skipView {
-		// Use --view-mode flag if provided, otherwise prompt
-		if *viewModeFlag != "" {
-			globalIsReadOnly = (*viewModeFlag == "view")
-		} else {
-			viewPrompt := promptui.Select{
-				Label: "Mode view untuk tabel yang akan digenerate",
-				Items: []string{
-					"write — tampilkan create, edit, delete",
-					"view  — hanya lihat, tanpa aksi tulis",
-				},
+		if *interactive {
+			// Use --view-mode flag if provided, otherwise prompt
+			if *viewModeFlag != "" {
+				globalIsReadOnly = (*viewModeFlag == "view")
+			} else {
+				viewPrompt := promptui.Select{
+					Label: "Mode view untuk tabel yang akan digenerate",
+					Items: []string{
+						"write — tampilkan create, edit, delete",
+						"view  — hanya lihat, tanpa aksi tulis",
+					},
+				}
+				viewIdx, _, _ := viewPrompt.Run()
+				globalIsReadOnly = viewIdx == 1
 			}
-			viewIdx, _, _ := viewPrompt.Run()
-			globalIsReadOnly = viewIdx == 1
-		}
 
-		// Use --filter-type flag if provided, otherwise prompt
-		if *filterTypeFlag != "" {
-			globalFilterType = *filterTypeFlag
-		} else {
-			filterPrompt := promptui.Select{
-				Label: "Filter di halaman list",
-				Items: []string{
-					"input — satu kolom pencarian (inline di list page)",
-					"form  — form per-kolom (halaman /filter terpisah)",
-					"both  — keyword inline + tombol buka halaman /filter",
-					"none  — tidak ada filter",
-				},
+			// Use --filter-type flag if provided, otherwise prompt
+			if *filterTypeFlag != "" {
+				globalFilterType = *filterTypeFlag
+			} else {
+				filterPrompt := promptui.Select{
+					Label: "Filter di halaman list",
+					Items: []string{
+						"input — satu kolom pencarian (inline di list page)",
+						"form  — form per-kolom (halaman /filter terpisah)",
+						"both  — keyword inline + tombol buka halaman /filter",
+						"none  — tidak ada filter",
+					},
+				}
+				filterIdx, _, _ := filterPrompt.Run()
+				switch filterIdx {
+				case 0:
+					globalFilterType = "input"
+				case 1:
+					globalFilterType = "form"
+				case 2:
+					globalFilterType = "both"
+				default:
+					globalFilterType = "none"
+				}
 			}
-			filterIdx, _, _ := filterPrompt.Run()
-			switch filterIdx {
-			case 0:
-				globalFilterType = "input"
-			case 1:
-				globalFilterType = "form"
-			case 2:
-				globalFilterType = "both"
-			default:
-				globalFilterType = "none"
+		} else {
+			// Non-interactive mode
+			if *viewModeFlag != "" {
+				globalIsReadOnly = (*viewModeFlag == "view")
+			}
+			if *filterTypeFlag != "" {
+				globalFilterType = *filterTypeFlag
 			}
 		}
 	}
@@ -887,7 +944,7 @@ echo === Done! ===
 		}
 
 		tplDir := filepath.Join(root, "resource", "template")
-		
+
 		// Generate shared public layout inclusions (sidebar.html and mobile_nav.html)
 		publicTplDir := filepath.Join(tplDir, "public")
 		_ = os.MkdirAll(publicTplDir, 0755)
