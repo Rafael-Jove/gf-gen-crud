@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"unicode"
@@ -39,16 +40,17 @@ import (
 
 // FieldInfo represents a parsed struct field.
 type FieldInfo struct {
-	Name       string   // Go field name, e.g. "NoHp"
-	Type       string   // Go type, e.g. "string", "int64", "*gtime.Time"
-	JsonTag    string   // json tag value, e.g. "no_hp"
-	OrmTag     string   // orm tag value, e.g. "no_hp"
-	IsSkip     bool     // true = exclude from create/update forms
-	IsAudit    bool     // true = auto-managed (CreatedAt, UpdatedAt, etc.)
-	HTMLType   string   // HTML input type: "text", "number", "date", "datetime-local", "time", "checkbox"
-	IsTextarea bool     // true = render as <textarea> (TEXT/LONGTEXT/JSON columns)
-	EnumValues []string // non-empty = render as <select> with these options
-	IsJson     bool     // true = JSON column
+	Name        string   // Go field name, e.g. "NoHp"
+	Type        string   // Go type, e.g. "string", "int64", "*gtime.Time"
+	JsonTag     string   // json tag value, e.g. "no_hp"
+	OrmTag      string   // orm tag value, e.g. "no_hp"
+	IsSkip      bool     // true = exclude from create/update forms
+	IsAudit     bool     // true = auto-managed (CreatedAt, UpdatedAt, etc.)
+	HTMLType    string   // HTML input type: "text", "number", "date", "datetime-local", "time", "checkbox"
+	IsTextarea  bool     // true = render as <textarea> (TEXT/LONGTEXT/JSON columns)
+	EnumValues  []string // non-empty = render as <select> with these options
+	IsJson      bool     // true = JSON column
+	IsFullWidth bool     // true = render full width in forms
 }
 
 type NavItem struct {
@@ -95,9 +97,36 @@ var skipFormFields = map[string]bool{
 	"PinUser":               true,
 }
 
-// ============================================================
-// Helpers
-// ============================================================
+func abbrev(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) == 0 {
+		return "??"
+	}
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == '_' || r == '-'
+	})
+	if len(parts) == 1 {
+		var camelParts []string
+		start := 0
+		for i, r := range s {
+			if i > 0 && unicode.IsUpper(r) {
+				camelParts = append(camelParts, s[start:i])
+				start = i
+			}
+		}
+		camelParts = append(camelParts, s[start:])
+		if len(camelParts) >= 2 {
+			parts = camelParts
+		}
+	}
+	if len(parts) >= 2 {
+		return strings.ToUpper(parts[0][:1] + parts[1][:1])
+	}
+	if len(s) >= 2 {
+		return strings.ToUpper(s[:2])
+	}
+	return strings.ToUpper(s)
+}
 
 func snakeToTitle(s string) string {
 	parts := strings.Split(s, "_")
@@ -163,10 +192,11 @@ func goTypeToHTMLInput(t string) string {
 
 // DBColMeta holds raw column_type info from INFORMATION_SCHEMA.
 type DBColMeta struct {
-	HTMLType   string
-	IsTextarea bool
-	EnumValues []string
-	IsJson     bool
+	HTMLType    string
+	IsTextarea  bool
+	EnumValues  []string
+	IsJson      bool
+	IsFullWidth bool
 }
 
 // parseMySQLLink parses a GoFrame MySQL link string:
@@ -251,6 +281,7 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 		meta := DBColMeta{HTMLType: "text"}
 		if strings.Contains(colTypeLow, "json") || strings.Contains(colNameLow, "json") || strings.Contains(colNameLow, "metadata") {
 			meta.IsJson = true
+			meta.IsFullWidth = true
 		}
 		switch {
 		case strings.HasPrefix(colTypeLow, "enum("):
@@ -267,8 +298,10 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 			strings.Contains(colTypeLow, "json"):
 			meta.IsTextarea = true
 			meta.HTMLType = "textarea"
+			meta.IsFullWidth = true
 		case strings.Contains(colTypeLow, "blob"):
 			meta.HTMLType = "file"
+			meta.IsFullWidth = true
 		case strings.Contains(colTypeLow, "datetime"),
 			strings.Contains(colTypeLow, "timestamp"):
 			meta.HTMLType = "datetime-local"
@@ -288,6 +321,13 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 			strings.Contains(colTypeLow, "decimal"),
 			strings.Contains(colTypeLow, "numeric"):
 			meta.HTMLType = "number"
+		}
+		// Check varchar length to decide layout width
+		reVarchar := regexp.MustCompile(`varchar\((\d+)\)`)
+		if m := reVarchar.FindStringSubmatch(colTypeLow); len(m) > 1 {
+			if length, err := strconv.Atoi(m[1]); err == nil && length >= 150 {
+				meta.IsFullWidth = true
+			}
 		}
 		result[colName] = meta
 	}
@@ -644,6 +684,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
 	"add": func(a, b int) int {
 		return a + b
 	},
+	"abbrev": abbrev,
 }).Parse(`<!DOCTYPE html>
 <html lang="id">
 <head>
@@ -654,33 +695,52 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
+        #sidebar.w-18 { width: 4.5rem !important; }
+        #sidebar.w-18 .sidebar-text { display: none !important; }
+        #sidebar.w-18 .nav-item { justify-content: center !important; }
+        #sidebar.w-18 .nav-item-icon { margin-right: 0 !important; }
+        #sidebar.w-18 .logo-container { justify-content: center !important; }
+        #sidebar.w-18 #toggle-button-collapsed { display: flex !important; }
+        #sidebar.w-18 .footer-container { justify-content: center !important; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside class="hidden md:flex md:flex-shrink-0">
-            <div class="flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800">
-                <div class="flex items-center h-16 px-6 bg-slate-950 space-x-3">
-                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-64 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
+            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
                         {{slice .ShortName 0 1}}
                     </div>
-                    <span class="text-white font-bold text-lg tracking-tight">Admin Console</span>
+                    <span class="sidebar-text text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
                 </div>
-                <div class="flex-1 flex flex-col overflow-y-auto px-4 py-6 space-y-1.5">
-                    <span class="px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Modul Data</span>
-                    {{- range .NavItems}}
-                    <a href="/{{.TableName}}" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                        <span class="w-2 h-2 rounded-full mr-3 {{if .Active}}bg-white{{else}}bg-slate-500{{end}}"></span>
-                        {{.Name}}
-                    </a>
-                    {{- end}}
-                </div>
-                <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>Sistem Aktif (Port: 8000)</span>
-                </div>
+                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
+                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
+                {{- range .NavItems}}
+                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
+                        {{abbrev .Name}}
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
+                </a>
+                {{- end}}
+            </div>
+            <div class="footer-container p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2 overflow-hidden">
+                <span class="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="sidebar-text whitespace-nowrap">Sistem Aktif (Port: 8000)</span>
             </div>
         </aside>
 
@@ -792,7 +852,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                         {{- end}}
                                     </td>
                                     {{- end}}
-                                    <td class="sticky right-0 bg-white group-hover:bg-slate-50 px-6 py-4 text-sm text-slate-700 text-right space-x-3 shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-10">
+                                    <td class="sticky right-0 bg-white group-hover:bg-slate-50/50 px-6 py-4 text-sm text-slate-700 text-right space-x-3 shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-10">
                                         <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}" class="inline-flex items-center text-xs font-semibold text-emerald-600 hover:text-emerald-950 transition-colors">
                                             Show
                                         </a>
@@ -818,11 +878,47 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
             </main>
         </div>
     </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.toggle('w-18');
+            if (isCollapsed) {
+                sidebar.classList.remove('w-64');
+                localStorage.setItem('sidebar-collapsed', 'true');
+            } else {
+                sidebar.classList.add('w-64');
+                localStorage.setItem('sidebar-collapsed', 'false');
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.remove('w-64');
+                    sidebar.classList.add('w-18');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 `))
 
-var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE html>
+var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.FuncMap{
+	"slice": func(s string, start, end int) string {
+		if start < 0 {
+			start = 0
+		}
+		if end > len(s) {
+			end = len(s)
+		}
+		if start > end {
+			return ""
+		}
+		return s[start:end]
+	},
+	"abbrev": abbrev,
+}).Parse(`<!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
@@ -832,33 +928,52 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
+        #sidebar.w-18 { width: 4.5rem !important; }
+        #sidebar.w-18 .sidebar-text { display: none !important; }
+        #sidebar.w-18 .nav-item { justify-content: center !important; }
+        #sidebar.w-18 .nav-item-icon { margin-right: 0 !important; }
+        #sidebar.w-18 .logo-container { justify-content: center !important; }
+        #sidebar.w-18 #toggle-button-collapsed { display: flex !important; }
+        #sidebar.w-18 .footer-container { justify-content: center !important; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside class="hidden md:flex md:flex-shrink-0">
-            <div class="flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800">
-                <div class="flex items-center h-16 px-6 bg-slate-950 space-x-3">
-                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-64 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
+            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
                         {{slice .ShortName 0 1}}
                     </div>
-                    <span class="text-white font-bold text-lg tracking-tight">Admin Console</span>
+                    <span class="sidebar-text text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
                 </div>
-                <div class="flex-1 flex flex-col overflow-y-auto px-4 py-6 space-y-1.5">
-                    <span class="px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Modul Data</span>
-                    {{- range .NavItems}}
-                    <a href="/{{.TableName}}" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                        <span class="w-2 h-2 rounded-full mr-3 {{if .Active}}bg-white{{else}}bg-slate-500{{end}}"></span>
-                        {{.Name}}
-                    </a>
-                    {{- end}}
-                </div>
-                <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>Sistem Aktif (Port: 8000)</span>
-                </div>
+                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
+                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
+                {{- range .NavItems}}
+                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
+                        {{abbrev .Name}}
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
+                </a>
+                {{- end}}
+            </div>
+            <div class="footer-container p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2 overflow-hidden">
+                <span class="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="sidebar-text whitespace-nowrap">Sistem Aktif (Port: 8000)</span>
             </div>
         </aside>
 
@@ -879,7 +994,7 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
                 </div>
             </header>
 
-            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-2xl">
+            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-4xl">
                 <!-- Mobile Navigation Tabs -->
                 <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
                     {{- range .NavItems}}
@@ -894,39 +1009,41 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
                     <h1 class="text-xl font-bold text-slate-900 mb-2">{{"{{"}} if .Id {{"}}"}}Edit{{"{{"}} else {{"}}"}}Tambah{{"{{"}} end {{"}}"}} {{.ShortName}}</h1>
                     <p class="text-sm text-slate-500 mb-6">Isi formulir berikut untuk menyimpan data.</p>
                     
-                    <form method="POST" action="/{{.TableName}}{{"{{"}} if .Id {{"}}"}}/{{"{{"}} .Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
-                        {{- range .FormFields}}
-                        <div>
-                            <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
-                            {{- if .EnumValues}}
-                            {{- $fieldName := .Name}}
-                            <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
-                                <option value="">-- Pilih {{.Name}} --</option>
-                                {{- range .EnumValues}}
-                                <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
+                    <form method="POST" action="/{{.TableName}}{{"{{"}} if .Id {{"}}"}}/{{"{{"}} .Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-6"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {{- range .FormFields}}
+                            <div class="{{if .IsFullWidth}}md:col-span-2{{else}}md:col-span-1{{end}}">
+                                <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
+                                {{- if .EnumValues}}
+                                {{- $fieldName := .Name}}
+                                <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
+                                    <option value="">-- Pilih {{.Name}} --</option>
+                                    {{- range .EnumValues}}
+                                    <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
+                                    {{- end}}
+                                </select>
+                                {{- else if .IsTextarea}}
+                                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
+                                {{- else if eq .HTMLType "file"}}
+                                <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                                {{- else if eq .HTMLType "date"}}
+                                <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                {{- else if eq .HTMLType "time"}}
+                                <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                {{- else if eq .HTMLType "datetime-local"}}
+                                <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                {{- else if eq .HTMLType "checkbox"}}
+                                <label class="flex items-center gap-2 cursor-pointer pt-2">
+                                    <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
+                                    <span class="text-sm text-slate-600">Aktif</span>
+                                </label>
+                                {{- else}}
+                                <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
                                 {{- end}}
-                            </select>
-                            {{- else if .IsTextarea}}
-                            <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
-                            {{- else if eq .HTMLType "file"}}
-                            <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-                            {{- else if eq .HTMLType "date"}}
-                            <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                            {{- else if eq .HTMLType "time"}}
-                            <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                            {{- else if eq .HTMLType "datetime-local"}}
-                            <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                            {{- else if eq .HTMLType "checkbox"}}
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
-                                <span class="text-sm text-slate-600">Aktif</span>
-                            </label>
-                            {{- else}}
-                            <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                            </div>
                             {{- end}}
                         </div>
-                        {{- end}}
-                        <div class="pt-2 flex items-center space-x-3">
+                        <div class="pt-4 border-t border-slate-100 flex items-center space-x-3">
                             <button type="submit" class="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold text-sm rounded-xl shadow-md transition-all">Simpan</button>
                             <a href="/{{.TableName}}" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-sm rounded-xl text-center">Batal</a>
                         </div>
@@ -935,11 +1052,47 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
             </main>
         </div>
     </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.toggle('w-18');
+            if (isCollapsed) {
+                sidebar.classList.remove('w-64');
+                localStorage.setItem('sidebar-collapsed', 'true');
+            } else {
+                sidebar.classList.add('w-64');
+                localStorage.setItem('sidebar-collapsed', 'false');
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.remove('w-64');
+                    sidebar.classList.add('w-18');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 `))
 
-var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCTYPE html>
+var detailHTMLTemplate = template.Must(template.New("detail_html").Funcs(template.FuncMap{
+	"slice": func(s string, start, end int) string {
+		if start < 0 {
+			start = 0
+		}
+		if end > len(s) {
+			end = len(s)
+		}
+		if start > end {
+			return ""
+		}
+		return s[start:end]
+	},
+	"abbrev": abbrev,
+}).Parse(`<!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
@@ -949,33 +1102,52 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCT
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
+        #sidebar.w-18 { width: 4.5rem !important; }
+        #sidebar.w-18 .sidebar-text { display: none !important; }
+        #sidebar.w-18 .nav-item { justify-content: center !important; }
+        #sidebar.w-18 .nav-item-icon { margin-right: 0 !important; }
+        #sidebar.w-18 .logo-container { justify-content: center !important; }
+        #sidebar.w-18 #toggle-button-collapsed { display: flex !important; }
+        #sidebar.w-18 .footer-container { justify-content: center !important; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside class="hidden md:flex md:flex-shrink-0">
-            <div class="flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800">
-                <div class="flex items-center h-16 px-6 bg-slate-950 space-x-3">
-                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-64 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
+            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
                         {{slice .ShortName 0 1}}
                     </div>
-                    <span class="text-white font-bold text-lg tracking-tight">Admin Console</span>
+                    <span class="sidebar-text text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
                 </div>
-                <div class="flex-1 flex flex-col overflow-y-auto px-4 py-6 space-y-1.5">
-                    <span class="px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Modul Data</span>
-                    {{- range .NavItems}}
-                    <a href="/{{.TableName}}" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                        <span class="w-2 h-2 rounded-full mr-3 {{if .Active}}bg-white{{else}}bg-slate-500{{end}}"></span>
-                        {{.Name}}
-                    </a>
-                    {{- end}}
-                </div>
-                <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>Sistem Aktif (Port: 8000)</span>
-                </div>
+                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
+                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
+                {{- range .NavItems}}
+                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
+                        {{abbrev .Name}}
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
+                </a>
+                {{- end}}
+            </div>
+            <div class="footer-container p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2 overflow-hidden">
+                <span class="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="sidebar-text whitespace-nowrap">Sistem Aktif (Port: 8000)</span>
             </div>
         </aside>
 
@@ -996,7 +1168,7 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCT
                 </div>
             </header>
 
-            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-2xl">
+            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-4xl">
                 <!-- Mobile Navigation Tabs -->
                 <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
                     {{- range .NavItems}}
@@ -1043,6 +1215,28 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCT
             </main>
         </div>
     </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.toggle('w-18');
+            if (isCollapsed) {
+                sidebar.classList.remove('w-64');
+                localStorage.setItem('sidebar-collapsed', 'true');
+            } else {
+                sidebar.classList.add('w-64');
+                localStorage.setItem('sidebar-collapsed', 'false');
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.remove('w-64');
+                    sidebar.classList.add('w-18');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 `))
@@ -1060,6 +1254,7 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
 		}
 		return s[start:end]
 	},
+	"abbrev": abbrev,
 }).Parse(`<!DOCTYPE html>
 <html lang="id">
 <head>
@@ -1070,33 +1265,52 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
+        #sidebar.w-18 { width: 4.5rem !important; }
+        #sidebar.w-18 .sidebar-text { display: none !important; }
+        #sidebar.w-18 .nav-item { justify-content: center !important; }
+        #sidebar.w-18 .nav-item-icon { margin-right: 0 !important; }
+        #sidebar.w-18 .logo-container { justify-content: center !important; }
+        #sidebar.w-18 #toggle-button-collapsed { display: flex !important; }
+        #sidebar.w-18 .footer-container { justify-content: center !important; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside class="hidden md:flex md:flex-shrink-0">
-            <div class="flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800">
-                <div class="flex items-center h-16 px-6 bg-slate-950 space-x-3">
-                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-64 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
+            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
                         A
                     </div>
-                    <span class="text-white font-bold text-lg tracking-tight">Admin Console</span>
+                    <span class="sidebar-text text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
                 </div>
-                <div class="flex-1 flex flex-col overflow-y-auto px-4 py-6 space-y-1.5">
-                    <span class="px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Modul Data</span>
-                    {{"{{"}}range .NavItems{{"}}"}}
-                    <a href="/{{"{{"}}.TableName{{"}}"}}" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all text-slate-400 hover:bg-slate-800 hover:text-slate-200">
-                        <span class="w-2 h-2 rounded-full mr-3 bg-slate-500"></span>
-                        {{"{{"}}.Name{{"}}"}}
-                    </a>
-                    {{"{{"}}end{{"}}"}}
-                </div>
-                <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>Sistem Aktif (Port: 8000)</span>
-                </div>
+                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
+                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
+                {{"{{"}}range .NavItems{{"}}"}}
+                <a href="/{{"{{"}}.TableName{{"}}"}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
+                        {{"{{"}}abbrev .Name{{"}}"}}
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">{{"{{"}}.Name{{"}}"}}</span>
+                </a>
+                {{"{{"}}end{{"}}"}}
+            </div>
+            <div class="footer-container p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2 overflow-hidden">
+                <span class="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="sidebar-text whitespace-nowrap">Sistem Aktif (Port: 8000)</span>
             </div>
         </aside>
 
@@ -1146,7 +1360,7 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
                         {{"{{"}}range .NavItems{{"}}"}}
                         <a href="/{{"{{"}}.TableName{{"}}"}}" class="group bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-indigo-500/50 transition-all">
                             <div class="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                {{"{{"}} slice .Name 0 1 {{"}}"}}
+                                {{"{{"}} abbrev .Name {{"}}"}}
                             </div>
                             <h4 class="text-lg font-bold text-slate-900 mt-4 group-hover:text-indigo-600 transition-all">{{"{{"}}.Name{{"}}"}}</h4>
                             <p class="text-xs text-slate-500 mt-1">Kelola data {{"{{"}}.Name{{"}}"}} (tambah, edit, detail, hapus).</p>
@@ -1157,6 +1371,28 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
             </main>
         </div>
     </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.toggle('w-18');
+            if (isCollapsed) {
+                sidebar.classList.remove('w-64');
+                localStorage.setItem('sidebar-collapsed', 'true');
+            } else {
+                sidebar.classList.add('w-64');
+                localStorage.setItem('sidebar-collapsed', 'false');
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.remove('w-64');
+                    sidebar.classList.add('w-18');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 `))
@@ -1641,8 +1877,20 @@ echo === Done! ===
 						fields[i].IsTextarea = meta.IsTextarea
 						fields[i].EnumValues = meta.EnumValues
 						fields[i].IsJson = meta.IsJson
+						fields[i].IsFullWidth = meta.IsFullWidth
 						if meta.HTMLType == "file" {
 							info.HasUpload = true
+						}
+					} else {
+						// Fallback if DB offline
+						lowName := strings.ToLower(fi.Name)
+						if fi.IsTextarea || fi.HTMLType == "file" || fi.HTMLType == "textarea" ||
+							strings.Contains(lowName, "address") || strings.Contains(lowName, "alamat") ||
+							strings.Contains(lowName, "desc") || strings.Contains(lowName, "deskripsi") ||
+							strings.Contains(lowName, "image") || strings.Contains(lowName, "file") ||
+							strings.Contains(lowName, "path") || strings.Contains(lowName, "url") ||
+							strings.Contains(lowName, "avatar") || strings.Contains(lowName, "cover") {
+							fields[i].IsFullWidth = true
 						}
 					}
 				}
