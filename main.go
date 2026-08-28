@@ -887,6 +887,24 @@ echo === Done! ===
 		}
 
 		tplDir := filepath.Join(root, "resource", "template")
+		
+		// Generate shared public layout inclusions (sidebar.html and mobile_nav.html)
+		publicTplDir := filepath.Join(tplDir, "public")
+		_ = os.MkdirAll(publicTplDir, 0755)
+
+		sidebarContent, err := renderTemplate(sidebarHTMLTemplate, allEntities)
+		if err == nil {
+			_ = writeFile(filepath.Join(publicTplDir, "sidebar.html"), sidebarContent, true)
+		} else {
+			fmt.Printf("Gagal merender sidebar.html: %v\n", err)
+		}
+
+		mobileNavContent, err := renderTemplate(mobileNavHTMLTemplate, allEntities)
+		if err == nil {
+			_ = writeFile(filepath.Join(publicTplDir, "mobile_nav.html"), mobileNavContent, true)
+		} else {
+			fmt.Printf("Gagal merender mobile_nav.html: %v\n", err)
+		}
 
 		indexContent, err := renderTemplate(indexHTMLTemplate, map[string]interface{}{
 			"NavItems": indexNavItems,

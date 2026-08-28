@@ -68,7 +68,7 @@ type Create{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}" method:"post" tags:"{{.StructName}}" summary:"Buat {{.ShortName}} baru"` + "`" + `
 {{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
-	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" v:"required#{{.Name}} wajib diisi"` + "`" + `
+	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" type:"file" v:"required#{{.Name}} wajib diisi"` + "`" + `
 	{{- else}}
 	{{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}" v:"required#{{.Name}} wajib diisi"` + "`" + `
 	{{- end}}
@@ -86,7 +86,7 @@ type Update{{.ShortName}}Req struct {
 	Id     uint64 ` + "`" + `json:"id" v:"required#ID wajib diisi"` + "`" + `
 {{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
-	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
+	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" type:"file"` + "`" + `
 	{{- else}}
 	{{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
 	{{- end}}
@@ -283,54 +283,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
-            <script>
-                if (localStorage.getItem('sidebar-collapsed') === 'false') {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.remove('w-18');
-                    sb.classList.add('w-64');
-                }
-            </script>
-            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
-                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                        A
-                    </div>
-                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
-                </div>
-                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
-                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
-                {{- range .NavItems}}
-                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
-                        {{abbrev .Name}}
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
-                </a>
-                {{- end}}
-            </div>
-            <div class="footer-container border-t border-slate-800 p-3">
-                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Query Console">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
-                </a>
-            </div>
-        </aside>
+        {{"{{"}}include "public/sidebar.html" .{{"}}"}}
 
         <!-- Content Area -->
         <div class="flex-1 flex flex-col overflow-y-auto">
@@ -352,13 +305,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
             <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl">
                 
                 <!-- Mobile Navigation Tabs -->
-                <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
-                    {{- range .NavItems}}
-                    <a href="/{{.TableName}}" class="whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all {{if .Active}}bg-indigo-600 text-white{{else}}bg-slate-100 text-slate-600 hover:bg-slate-200{{end}}">
-                        {{.Name}}
-                    </a>
-                    {{- end}}
-                </div>
+                {{"{{"}}include "public/mobile_nav.html" .{{"}}"}}
 
                 <!-- Header Section -->
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -660,54 +607,7 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
-            <script>
-                if (localStorage.getItem('sidebar-collapsed') === 'false') {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.remove('w-18');
-                    sb.classList.add('w-64');
-                }
-            </script>
-            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
-                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                        A
-                    </div>
-                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
-                </div>
-                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
-                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
-                {{- range .NavItems}}
-                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
-                        {{abbrev .Name}}
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
-                </a>
-                {{- end}}
-            </div>
-            <div class="footer-container border-t border-slate-800 p-3">
-                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Query Console">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
-                </a>
-            </div>
-        </aside>
+        {{"{{"}}include "public/sidebar.html" .{{"}}"}}
 
         <!-- Content Area -->
         <div class="flex-1 flex flex-col overflow-y-auto">
@@ -728,13 +628,7 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
 
             <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-4xl">
                 <!-- Mobile Navigation Tabs -->
-                <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
-                    {{- range .NavItems}}
-                    <a href="/{{.TableName}}" class="whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all {{if .Active}}bg-indigo-600 text-white{{else}}bg-slate-100 text-slate-600 hover:bg-slate-200{{end}}">
-                        {{.Name}}
-                    </a>
-                    {{- end}}
-                </div>
+                {{"{{"}}include "public/mobile_nav.html" .{{"}}"}}
 
                 <!-- Form Card -->
                 <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -796,6 +690,30 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
                 localStorage.setItem('sidebar-collapsed', 'false');
             }
         }
+
+        // Intercept form submit to convert raw "HH:MM" time values to full "YYYY-MM-DD HH:MM:SS"
+        // so that GoFrame's gtime.Time parser can bind them successfully instead of falling back to nil/null.
+        document.querySelector('form').addEventListener('submit', function(e) {
+            this.querySelectorAll('input[type="time"]').forEach(input => {
+                if (input.value) {
+                    let formattedVal = "";
+                    if (input.value.length === 5) {
+                        formattedVal = '2000-01-01 ' + input.value + ':00';
+                    } else if (input.value.length === 8) {
+                        formattedVal = '2000-01-01 ' + input.value;
+                    }
+                    
+                    if (formattedVal) {
+                        const hiddenInput = document.createElement('input');
+                        hiddenInput.type = 'hidden';
+                        hiddenInput.name = input.name;
+                        hiddenInput.value = formattedVal;
+                        input.removeAttribute('name');
+                        this.appendChild(hiddenInput);
+                    }
+                }
+            });
+        });
     </script>
 </body>
 </html>
@@ -838,54 +756,7 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Funcs(templat
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation (Desktop) -->
-        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
-            <script>
-                if (localStorage.getItem('sidebar-collapsed') === 'false') {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.remove('w-18');
-                    sb.classList.add('w-64');
-                }
-            </script>
-            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
-                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                        A
-                    </div>
-                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
-                </div>
-                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
-                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
-                {{- range .NavItems}}
-                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
-                        {{abbrev .Name}}
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
-                </a>
-                {{- end}}
-            </div>
-            <div class="footer-container border-t border-slate-800 p-3">
-                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Query Console">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
-                </a>
-            </div>
-        </aside>
+        {{"{{"}}include "public/sidebar.html" .{{"}}"}}
 
         <!-- Content Area -->
         <div class="flex-1 flex flex-col overflow-y-auto">
@@ -906,13 +777,7 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Funcs(templat
 
             <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-4xl">
                 <!-- Mobile Navigation Tabs -->
-                <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
-                    {{- range .NavItems}}
-                    <a href="/{{.TableName}}" class="whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all {{if .Active}}bg-indigo-600 text-white{{else}}bg-slate-100 text-slate-600 hover:bg-slate-200{{end}}">
-                        {{.Name}}
-                    </a>
-                    {{- end}}
-                </div>
+                {{"{{"}}include "public/mobile_nav.html" .{{"}}"}}
 
                 <!-- Detail Breadcrumb -->
                 <div class="flex items-center gap-2 text-sm text-slate-500 mb-6">
@@ -1021,53 +886,8 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
 <body class="bg-slate-50 text-slate-800 min-h-screen">
     <div class="flex h-screen overflow-hidden">
 
-        <!-- Sidebar Navigation -->
-        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
-            <script>
-                if (localStorage.getItem('sidebar-collapsed') === 'false') {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.remove('w-18');
-                    sb.classList.add('w-64');
-                }
-            </script>
-            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
-                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">A</div>
-                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
-                </div>
-                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
-                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
-                {{- range .NavItems}}
-                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all {{if .Active}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200{{end}}">
-                        {{.Abbrev}}
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
-                </a>
-                {{- end}}
-            </div>
-            <div class="footer-container border-t border-slate-800 p-3">
-                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Query Console">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
-                </a>
-            </div>
-        </aside>
+        <!-- Sidebar Navigation (Desktop) -->
+        {{"{{"}}include "public/sidebar.html" .{{"}}"}}
 
         <!-- Content -->
         <div class="flex-1 flex flex-col overflow-y-auto">
@@ -1088,7 +908,7 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
                         <h1 class="text-2xl font-bold text-slate-900">Filter {{.ShortName}}</h1>
                         <p class="text-sm text-slate-500 mt-0.5">Isi kolom filter yang ingin kamu terapkan, lalu klik Terapkan Filter.</p>
                     </div>
-                    {{"{{"}}if not .IsReadOnly{{"}}"}}
+                    {{- if not .IsReadOnly}}
                     <div>
                         <a href="/{{.TableName}}/create" class="inline-flex items-center justify-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-md shadow-indigo-600/10 transition-all gap-2 w-full sm:w-auto">
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1097,7 +917,7 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
                             Tambah {{.ShortName}}
                         </a>
                     </div>
-                    {{"{{"}}end{{"}}"}}
+                    {{- end}}
                 </div>
 
                 <!-- Filter Form Card -->
@@ -1218,7 +1038,7 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                 </svg>
                                             </a>
-                                            {{"{{"}}if not $dot.IsReadOnly{{"}}"}}
+                                            {{- if not .IsReadOnly}}
                                             <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/edit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900 transition-colors" title="Update">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1229,7 +1049,7 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                 </svg>
                                             </a>
-                                            {{"{{"}}end{{"}}"}}
+                                            {{- end}}
                                         </div>
                                     </td>
                                 </tr>
@@ -1855,54 +1675,7 @@ var indexHTMLTemplate = template.Must(template.New("index_html").Funcs(template.
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation -->
-        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
-            <script>
-                if (localStorage.getItem('sidebar-collapsed') === 'false') {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.remove('w-18');
-                    sb.classList.add('w-64');
-                }
-            </script>
-            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
-                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                        A
-                    </div>
-                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
-                </div>
-                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
-                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
-                {{- range .NavItems}}
-                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group hover:bg-slate-800 hover:text-slate-200">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        {{.Abbrev}}
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
-                </a>
-                {{- end}}
-            </div>
-            <div class="footer-container border-t border-slate-800 p-3">
-                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Query Console">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
-                </a>
-            </div>
-        </aside>
+        {{"{{"}}include "public/sidebar.html" .{{"}}"}}
 
         <!-- Content Area -->
         <div class="flex-1 flex flex-col overflow-y-auto">
@@ -1971,54 +1744,7 @@ var queryHTMLTemplate = template.Must(template.New("query_html").Funcs(template.
     <div class="flex h-screen overflow-hidden">
         
         <!-- Sidebar Navigation -->
-        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
-            <script>
-                if (localStorage.getItem('sidebar-collapsed') === 'false') {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.remove('w-18');
-                    sb.classList.add('w-64');
-                }
-            </script>
-            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
-                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                        A
-                    </div>
-                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
-                </div>
-                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5">
-                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
-                {{- range .NavItems}}
-                <a href="/{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group hover:bg-slate-800 hover:text-slate-200">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
-                        {{.Abbrev}}
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">{{.Name}}</span>
-                </a>
-                {{- end}}
-            </div>
-            <div class="footer-container border-t border-slate-800 p-3">
-                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-white shadow-md bg-indigo-600 shadow-indigo-600/10" title="Query Console">
-                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-indigo-500 text-white">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </span>
-                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
-                </a>
-            </div>
-        </aside>
+        {{"{{"}}include "public/sidebar.html" .{{"}}"}}
 
         <!-- Content Area -->
         <div class="flex-1 flex flex-col overflow-y-auto">
@@ -2120,3 +1846,94 @@ var queryHTMLTemplate = template.Must(template.New("query_html").Funcs(template.
 </body>
 </html>
 `))
+
+var sidebarHTMLTemplate = template.Must(template.New("sidebar_html").Funcs(template.FuncMap{
+	"abbrev": abbrev,
+}).Parse(`<!-- Sidebar Navigation (Desktop) -->
+        <aside id="sidebar" class="hidden md:flex md:flex-col md:flex-shrink-0 w-18 bg-slate-900 text-slate-300 border-r border-slate-800 transition-all duration-300 relative">
+            <script>
+                if (localStorage.getItem('sidebar-collapsed') === 'false') {
+                    const sb = document.getElementById('sidebar');
+                    sb.classList.remove('w-18');
+                    sb.classList.add('w-64');
+                }
+            </script>
+            <div class="logo-container flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800/50">
+                <div class="sidebar-text flex items-center space-x-3 overflow-hidden">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+                        A
+                    </div>
+                    <span class="text-white font-bold text-lg tracking-tight whitespace-nowrap">Admin Console</span>
+                </div>
+                <button onclick="toggleSidebar()" class="sidebar-text p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-button-collapsed" onclick="toggleSidebar()" class="hidden p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-colors flex items-center justify-center mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 flex flex-col overflow-y-auto px-3 py-6 space-y-1.5" id="sidebar-nav-items">
+                <span class="sidebar-text px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 whitespace-nowrap">Modul Data</span>
+                {{- range .}}
+                <a href="/{{.TableName}}" data-table="{{.TableName}}" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
+                        {{abbrev .ShortName}}
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">{{.ShortName}}</span>
+                </a>
+                {{- end}}
+            </div>
+            <div class="footer-container border-t border-slate-800 p-3">
+                <a href="/query" class="nav-item flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-all group text-slate-400 hover:bg-slate-800 hover:text-slate-200" title="Query Console">
+                    <span class="nav-item-icon flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mr-3 transition-all bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                    </span>
+                    <span class="sidebar-text whitespace-nowrap">Query Console</span>
+                </a>
+            </div>
+            <script>
+                (function() {
+                    const currentPath = window.location.pathname;
+                    document.querySelectorAll('#sidebar-nav-items .nav-item').forEach(item => {
+                        const table = item.getAttribute('data-table');
+                        if (currentPath === '/' + table || currentPath.startsWith('/' + table + '/')) {
+                            item.classList.remove('text-slate-400', 'hover:bg-slate-800', 'hover:text-slate-200');
+                            item.classList.add('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-600/10');
+                            const icon = item.querySelector('.nav-item-icon');
+                            if (icon) {
+                                icon.classList.remove('bg-slate-800', 'text-slate-400');
+                                icon.classList.add('bg-indigo-500', 'text-white');
+                            }
+                        }
+                    });
+                })();
+            </script>
+        </aside>`))
+
+var mobileNavHTMLTemplate = template.Must(template.New("mobile_nav_html").Parse(`<!-- Mobile Navigation Tabs -->
+                <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none" id="mobile-nav-tabs">
+                    {{- range .}}
+                    <a href="/{{.TableName}}" data-table="{{.TableName}}" class="mobile-nav-item whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all bg-slate-100 text-slate-600 hover:bg-slate-200">
+                        {{.ShortName}}
+                    </a>
+                    {{- end}}
+                    <script>
+                        (function() {
+                            const currentPath = window.location.pathname;
+                            document.querySelectorAll('#mobile-nav-tabs .mobile-nav-item').forEach(item => {
+                                const table = item.getAttribute('data-table');
+                                if (currentPath === '/' + table || currentPath.startsWith('/' + table + '/')) {
+                                    item.classList.remove('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
+                                    item.classList.add('bg-indigo-600', 'text-white');
+                                }
+                            });
+                        })();
+                    </script>
+                </div>`))
+
