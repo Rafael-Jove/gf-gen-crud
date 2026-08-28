@@ -436,11 +436,17 @@ func goTypeStr(expr ast.Expr) string {
 // Templates
 // ============================================================
 
-var apiTemplate = template.Must(template.New("api").Parse(`package v1
+var apiTemplate = template.Must(template.New("api").Funcs(template.FuncMap{
+	"contains": strings.Contains,
+}).Parse(`package v1
 
 import (
 	"github.com/gogf/gf/v2/frame/g"
-{{- if .HasGtime}}
+{{- $hasGtime := false}}
+{{- range .FormFields}}
+{{- if contains .Type "gtime"}}{{$hasGtime = true}}{{end}}
+{{- end}}
+{{- if $hasGtime}}
 	"github.com/gogf/gf/v2/os/gtime"
 {{- end}}
 {{- if .HasUpload}}
@@ -454,7 +460,7 @@ type List{{.ShortName}}Req struct {
 	g.Meta   ` + "`" + `path:"/{{.TableName}}" method:"get" tags:"{{.StructName}}" summary:"Daftar {{.ShortName}}"` + "`" + `
 	Page     int ` + "`" + `json:"page" d:"1"` + "`" + `
 	PageSize int ` + "`" + `json:"page_size" d:"10"` + "`" + `
-	EditId   uint64 ` + "`" + `json:"edit_id"` + "`" + `
+	Keyword  string ` + "`" + `json:"keyword"` + "`" + `
 }
 
 type List{{.ShortName}}Res struct {
@@ -545,6 +551,7 @@ var logicTemplate = template.Must(template.New("logic").Parse(`package {{.VarNam
 import (
 	"context"
 
+	"github.com/gogf/gf/v2/database/gdb"
 	"{{.ModuleName}}/internal/dao"
 	"{{.ModuleName}}/internal/model/do"
 	"{{.ModuleName}}/internal/model/entity"
@@ -561,9 +568,30 @@ func New() *s{{.StructName}} {
 	return &s{{.StructName}}{}
 }
 
-// List mengambil daftar {{.ShortName}} dengan pagination.
-func (s *s{{.StructName}}) List(ctx context.Context, page, pageSize int) (list []*entity.{{.StructName}}, total int, err error) {
+// List mengambil daftar {{.ShortName}} dengan pagination dan keyword filter.
+func (s *s{{.StructName}}) List(ctx context.Context, page, pageSize int, keyword string) (list []*entity.{{.StructName}}, total int, err error) {
 	m := dao.{{.StructName}}.Ctx(ctx)
+	{{- $hasStringField := false}}
+	{{- range .ListFields}}
+	{{- if eq .Type "string"}}{{$hasStringField = true}}{{end}}
+	{{- end}}
+	{{- if $hasStringField}}
+	if keyword != "" {
+		m = m.Where(func(m *gdb.Model) {
+			{{- $first := true}}
+			{{- range .ListFields}}
+			{{- if eq .Type "string"}}
+			{{- if $first}}
+			m.Where("` + "`" + `{{.OrmTag}}` + "`" + ` LIKE ?", "%"+keyword+"%")
+			{{- $first = false}}
+			{{- else}}
+			m.WhereOr("` + "`" + `{{.OrmTag}}` + "`" + ` LIKE ?", "%"+keyword+"%")
+			{{- end}}
+			{{- end}}
+			{{- end}}
+		})
+	}
+	{{- end}}
 	total, err = m.Count()
 	if err != nil {
 		return
@@ -612,6 +640,9 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
 			return ""
 		}
 		return s[start:end]
+	},
+	"add": func(a, b int) int {
+		return a + b
 	},
 }).Parse(`<!DOCTYPE html>
 <html lang="id">
@@ -681,145 +712,114 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                     {{- end}}
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <!-- Left Side: Form -->
-                    <div class="lg:col-span-1">
-                        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 sticky top-8">
-                            <h2 class="text-xl font-bold text-slate-900 mb-2">
-                                {{"{{"}} if .Edit {{"}}"}}Edit {{.ShortName}}{{"{{"}} else {{"}}"}}Tambah {{.ShortName}}{{"{{"}} end {{"}}"}}
-                            </h2>
-                            <p class="text-sm text-slate-500 mb-6">
-                                {{"{{"}} if .Edit {{"}}"}}Perbarui informasi data yang sudah ada.{{"{{"}} else {{"}}"}}Masukkan informasi untuk membuat data baru.{{"{{"}} end {{"}}"}}
-                            </p>
+                <!-- Header Section -->
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-900 font-bold">Daftar {{.ShortName}}</h1>
+                        <p class="text-sm text-slate-500 mt-0.5">Kelola data {{.TableName}} dengan mudah.</p>
+                    </div>
+                    <div>
+                        <a href="/{{.TableName}}/create" class="inline-flex items-center justify-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-md shadow-indigo-600/10 transition-all gap-2 w-full sm:w-auto">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Tambah {{.ShortName}}
+                        </a>
+                    </div>
+                </div>
 
-                            <form method="POST" action="/{{.TableName}}{{"{{"}} if .Edit {{"}}"}}/{{"{{"}} .Edit.Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
-                                {{- range .FormFields}}
-                                <div>
-                                    <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
-                                    {{- if .EnumValues}}
-                                    {{- $fieldName := .Name}}
-                                    <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
-                                        <option value="">-- Pilih {{.Name}} --</option>
-                                        {{- range .EnumValues}}
-                                        <option value="{{.}}" {{"{{"}} if $.Edit {{"}}"}}{{"{{"}} if eq (printf "%v" $.Edit.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}}>{{.}}</option>
-                                        {{- end}}
-                                    </select>
-                                    {{- else if .IsTextarea}}
-                                    <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400 resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} else {{"}}"}}{{if .IsJson}}{}{{end}}{{"{{"}} end {{"}}"}}</textarea>
-                                    {{- else if eq .HTMLType "file"}}
-                                    <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-                                    {{- else if eq .HTMLType "date"}}
-                                    <input 
-                                        type="date" 
-                                        name="{{.JsonTag}}" 
-                                        value="{{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}{{"{{"}} $.Edit.{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" 
-                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
-                                        placeholder="Masukkan {{.Name}}..."
-                                    />
-                                    {{- else if eq .HTMLType "time"}}
-                                    <input 
-                                        type="time" 
-                                        name="{{.JsonTag}}" 
-                                        value="{{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}{{"{{"}} $.Edit.{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" 
-                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
-                                        placeholder="Masukkan {{.Name}}..."
-                                    />
-                                    {{- else if eq .HTMLType "datetime-local"}}
-                                    <input 
-                                        type="datetime-local" 
-                                        name="{{.JsonTag}}" 
-                                        value="{{"{{"}} if and $.Edit $.Edit.{{.Name}} {{"}}"}}{{"{{"}} $.Edit.{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" 
-                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
-                                        placeholder="Masukkan {{.Name}}..."
-                                    />
-                                    {{- else if eq .HTMLType "checkbox"}}
-                                    <label class="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if $.Edit {{"}}"}}{{"{{"}} if $.Edit.{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
-                                        <span class="text-sm text-slate-600">Aktif</span>
-                                    </label>
-                                    {{- else}}
-                                    <input 
-                                        type="{{.HTMLType}}" 
-                                        name="{{.JsonTag}}" 
-                                        value="{{"{{"}} if $.Edit {{"}}"}}{{"{{"}} $.Edit.{{.Name}} {{"}}"}}{{"{{"}} end {{"}}"}}" 
-                                        class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400" 
-                                        placeholder="Masukkan {{.Name}}..."
-                                    />
-                                    {{- end}}
-                                </div>
-                                {{- end}}
-                                
-                                <div class="pt-2 flex items-center space-x-3">
-                                    <button type="submit" class="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-medium text-sm rounded-xl shadow-md shadow-indigo-100 transition-all">
-                                        Simpan
-                                    </button>
-                                    {{"{{"}} if .Edit {{"}}"}}
-                                    <a href="/{{.TableName}}" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium text-sm rounded-xl transition-all text-center">
-                                        Batal
-                                    </a>
-                                    {{"{{"}} end {{"}}"}}
-                                </div>
-                            </form>
+                <!-- Filter Card -->
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 mb-6">
+                    <form method="GET" action="/{{.TableName}}" class="flex flex-col sm:flex-row items-center gap-3">
+                        <div class="relative flex-1 w-full">
+                            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                            </div>
+                            <input 
+                                type="text" 
+                                name="keyword" 
+                                value="{{"{{"}} .Keyword {{"}}"}}" 
+                                placeholder="Cari berdasarkan kata kunci..." 
+                                class="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm placeholder-slate-400"
+                            />
                         </div>
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <button type="submit" class="flex-1 sm:flex-initial px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-xl transition-all">
+                                Filter
+                            </button>
+                            {{"{{"}} if .Keyword {{"}}"}}
+                            <a href="/{{.TableName}}" class="flex-1 sm:flex-initial px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-sm rounded-xl transition-all text-center">
+                                Reset
+                            </a>
+                            {{"{{"}} end {{"}}"}}
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Table Card -->
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <h2 class="font-bold text-slate-900">Total: {{"{{"}} .Total {{"}}"}} data</h2>
                     </div>
 
-                    <!-- Right Side: Data List -->
-                    <div class="lg:col-span-2 space-y-6">
-                        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-                            <div class="p-6 border-b border-slate-100 flex items-center justify-between">
-                                <div>
-                                    <h2 class="text-xl font-bold text-slate-900">Daftar {{.ShortName}}</h2>
-                                    <p class="text-sm text-slate-500 mt-0.5">Total: {{"{{"}} .Total {{"}}"}} data ditemukan</p>
-                                </div>
-                            </div>
-
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr class="bg-slate-50 border-b border-slate-100">
-                                            {{- range .ListFields}}
-                                            <th class="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{{.Name}}</th>
-                                            {{- end}}
-                                            <th class="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-slate-100">
-                                        {{"{{"}}range .List{{"}}"}}
-                                        <tr class="hover:bg-slate-50/50 transition-colors">
-                                            {{- range .ListFields}}
-                                            <td class="px-6 py-4 text-sm text-slate-700 font-medium">
-                                                {{- if eq .HTMLType "file"}}
-                                                {{"{{"}} if .{{.Name}} {{"}}"}}
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                                    Ada File
-                                                </span>
-                                                {{"{{"}} else {{"}}"}}
-                                                <span class="text-slate-400 font-normal">-</span>
-                                                {{"{{"}} end {{"}}"}}
-                                                {{- else}}
-                                                {{"{{"}} .{{.Name}} {{"}}"}}
-                                                {{- end}}
-                                            </td>
-                                            {{- end}}
-                                            <td class="px-6 py-4 text-sm text-slate-700 text-right space-x-3">
-                                                <a href="/{{$.TableName}}?edit_id={{"{{"}} .Id {{"}}"}}" class="inline-flex items-center text-xs font-semibold text-indigo-600 hover:text-indigo-900 transition-colors">
-                                                    Edit
-                                                </a>
-                                                <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/delete" onclick="return confirm('Hapus data ini?')" class="inline-flex items-center text-xs font-semibold text-rose-600 hover:text-rose-900 transition-colors">
-                                                    Hapus
-                                                </a>
-                                            </td>
-                                        </tr>
-                                        {{"{{"}}end{{"}}"}}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                    <div class="overflow-x-auto relative">
+                        <table class="w-full text-left border-collapse min-w-[800px]">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-100">
+                                    {{- range .ListFields}}
+                                    <th class="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{{.Name}}</th>
+                                    {{- end}}
+                                    <th class="sticky right-0 bg-slate-50 px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-20">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {{"{{"}}range .List{{"}}"}}
+                                <tr class="group hover:bg-slate-50/50 transition-colors">
+                                    {{- range .ListFields}}
+                                    <td class="px-6 py-4 text-sm text-slate-700 font-medium">
+                                        {{- if eq .HTMLType "file"}}
+                                        {{"{{"}} if .{{.Name}} {{"}}"}}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                            Ada File
+                                        </span>
+                                        {{"{{"}} else {{"}}"}}
+                                        <span class="text-slate-400 font-normal">-</span>
+                                        {{"{{"}} end {{"}}"}}
+                                        {{- else}}
+                                        {{"{{"}} .{{.Name}} {{"}}"}}
+                                        {{- end}}
+                                    </td>
+                                    {{- end}}
+                                    <td class="sticky right-0 bg-white group-hover:bg-slate-50 px-6 py-4 text-sm text-slate-700 text-right space-x-3 shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-10">
+                                        <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}" class="inline-flex items-center text-xs font-semibold text-emerald-600 hover:text-emerald-950 transition-colors">
+                                            Show
+                                        </a>
+                                        <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/edit" class="inline-flex items-center text-xs font-semibold text-indigo-600 hover:text-indigo-900 transition-colors">
+                                            Update
+                                        </a>
+                                        <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/delete" onclick="return confirm('Hapus data ini?')" class="inline-flex items-center text-xs font-semibold text-rose-600 hover:text-rose-900 transition-colors">
+                                            Delete
+                                        </a>
+                                    </td>
+                                </tr>
+                                {{"{{"}}else{{"}}"}}
+                                <tr>
+                                    <td colspan="{{add (len .ListFields) 1}}" class="px-6 py-10 text-center text-sm text-slate-400">
+                                        Tidak ada data ditemukan.
+                                    </td>
+                                </tr>
+                                {{"{{"}}end{{"}}"}}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </main>
         </div>
     </div>
+</body>
+</html>
 `))
 
 var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE html>
@@ -834,47 +834,106 @@ var formHTMLTemplate = template.Must(template.New("form_html").Parse(`<!DOCTYPE 
         body { font-family: 'Inter', sans-serif; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 w-full max-w-md">
-        <h1 class="text-xl font-bold text-slate-900 mb-2">{{"{{"}} if .Id {{"}}"}}Edit{{"{{"}} else {{"}}"}}Tambah{{"{{"}} end {{"}}"}} {{.ShortName}}</h1>
-        <p class="text-sm text-slate-500 mb-6">Isi formulir berikut untuk menyimpan data.</p>
-        <form method="POST" action="/{{.TableName}}{{"{{"}} if .Id {{"}}"}}/{{"{{"}} .Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
-            {{- range .FormFields}}
-            <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
-                {{- if .EnumValues}}
-                {{- $fieldName := .Name}}
-                <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
-                    <option value="">-- Pilih {{.Name}} --</option>
-                    {{- range .EnumValues}}
-                    <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <div class="flex h-screen overflow-hidden">
+        
+        <!-- Sidebar Navigation (Desktop) -->
+        <aside class="hidden md:flex md:flex-shrink-0">
+            <div class="flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800">
+                <div class="flex items-center h-16 px-6 bg-slate-950 space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+                        {{slice .ShortName 0 1}}
+                    </div>
+                    <span class="text-white font-bold text-lg tracking-tight">Admin Console</span>
+                </div>
+                <div class="flex-1 flex flex-col overflow-y-auto px-4 py-6 space-y-1.5">
+                    <span class="px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Modul Data</span>
+                    {{- range .NavItems}}
+                    <a href="/{{.TableName}}" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
+                        <span class="w-2 h-2 rounded-full mr-3 {{if .Active}}bg-white{{else}}bg-slate-500{{end}}"></span>
+                        {{.Name}}
+                    </a>
                     {{- end}}
-                </select>
-                {{- else if .IsTextarea}}
-                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
-                {{- else if eq .HTMLType "file"}}
-                <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-                {{- else if eq .HTMLType "date"}}
-                <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                {{- else if eq .HTMLType "time"}}
-                <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                {{- else if eq .HTMLType "datetime-local"}}
-                <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                {{- else if eq .HTMLType "checkbox"}}
-                <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
-                    <span class="text-sm text-slate-600">Aktif</span>
-                </label>
-                {{- else}}
-                <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
-                {{- end}}
+                </div>
+                <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Sistem Aktif (Port: 8000)</span>
+                </div>
             </div>
-            {{- end}}
-            <div class="pt-2 flex items-center space-x-3">
-                <button type="submit" class="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-medium text-sm rounded-xl shadow-md transition-all">Simpan</button>
-                <a href="/{{.TableName}}" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium text-sm rounded-xl text-center">Batal</a>
-            </div>
-        </form>
+        </aside>
+
+        <!-- Content Area -->
+        <div class="flex-1 flex flex-col overflow-y-auto">
+            
+            <!-- Mobile Header -->
+            <header class="md:hidden bg-white border-b border-slate-200 h-16 px-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-base">
+                        {{slice .ShortName 0 1}}
+                    </div>
+                    <span class="font-bold text-slate-900">{{.ShortName}} Manager</span>
+                </div>
+                <div class="text-xs text-slate-500 flex items-center space-x-2">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span>Aktif</span>
+                </div>
+            </header>
+
+            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-2xl">
+                <!-- Mobile Navigation Tabs -->
+                <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
+                    {{- range .NavItems}}
+                    <a href="/{{.TableName}}" class="whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all {{if .Active}}bg-indigo-600 text-white{{else}}bg-slate-100 text-slate-600 hover:bg-slate-200{{end}}">
+                        {{.Name}}
+                    </a>
+                    {{- end}}
+                </div>
+
+                <!-- Form Card -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h1 class="text-xl font-bold text-slate-900 mb-2">{{"{{"}} if .Id {{"}}"}}Edit{{"{{"}} else {{"}}"}}Tambah{{"{{"}} end {{"}}"}} {{.ShortName}}</h1>
+                    <p class="text-sm text-slate-500 mb-6">Isi formulir berikut untuk menyimpan data.</p>
+                    
+                    <form method="POST" action="/{{.TableName}}{{"{{"}} if .Id {{"}}"}}/{{"{{"}} .Id {{"}}"}}{{"{{"}} end {{"}}"}}" class="space-y-4"{{if .HasUpload}} enctype="multipart/form-data"{{end}}>
+                        {{- range .FormFields}}
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
+                            {{- if .EnumValues}}
+                            {{- $fieldName := .Name}}
+                            <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
+                                <option value="">-- Pilih {{.Name}} --</option>
+                                {{- range .EnumValues}}
+                                <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
+                                {{- end}}
+                            </select>
+                            {{- else if .IsTextarea}}
+                            <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
+                            {{- else if eq .HTMLType "file"}}
+                            <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                            {{- else if eq .HTMLType "date"}}
+                            <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                            {{- else if eq .HTMLType "time"}}
+                            <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                            {{- else if eq .HTMLType "datetime-local"}}
+                            <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                            {{- else if eq .HTMLType "checkbox"}}
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
+                                <span class="text-sm text-slate-600">Aktif</span>
+                            </label>
+                            {{- else}}
+                            <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                            {{- end}}
+                        </div>
+                        {{- end}}
+                        <div class="pt-2 flex items-center space-x-3">
+                            <button type="submit" class="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold text-sm rounded-xl shadow-md transition-all">Simpan</button>
+                            <a href="/{{.TableName}}" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-sm rounded-xl text-center">Batal</a>
+                        </div>
+                    </form>
+                </div>
+            </main>
+        </div>
     </div>
 </body>
 </html>
@@ -892,34 +951,96 @@ var detailHTMLTemplate = template.Must(template.New("detail_html").Parse(`<!DOCT
         body { font-family: 'Inter', sans-serif; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 w-full max-w-md">
-        <h1 class="text-xl font-bold text-slate-900 mb-4">Detail {{.ShortName}} #{{"{{"}} .Id {{"}}"}}</h1>
-        <table class="w-full text-left border-collapse mb-6 text-sm">
-            <tbody class="divide-y divide-slate-100">
-                {{- range .Fields}}
-                <tr>
-                    <th class="py-2.5 font-semibold text-slate-500 w-1/3">{{.Name}}</th>
-                    <td class="py-2.5 text-slate-700">
-                        {{- if eq .HTMLType "file"}}
-                        {{"{{"}} if .{{.Name}} {{"}}"}}
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            Ada File
-                        </span>
-                        {{"{{"}} else {{"}}"}}
-                        <span class="text-slate-400">-</span>
-                        {{"{{"}} end {{"}}"}}
-                        {{- else}}
-                        {{"{{"}} .{{.Name}} {{"}}"}}
-                        {{- end}}
-                    </td>
-                </tr>
-                {{- end}}
-            </tbody>
-        </table>
-        <div class="flex items-center space-x-3">
-            <a href="/{{.TableName}}/{{"{{"}} .Id {{"}}"}}/edit" class="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-xl text-center shadow-md transition-all">Edit</a>
-            <a href="/{{.TableName}}" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium text-sm rounded-xl text-center transition-all">Kembali</a>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <div class="flex h-screen overflow-hidden">
+        
+        <!-- Sidebar Navigation (Desktop) -->
+        <aside class="hidden md:flex md:flex-shrink-0">
+            <div class="flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800">
+                <div class="flex items-center h-16 px-6 bg-slate-950 space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
+                        {{slice .ShortName 0 1}}
+                    </div>
+                    <span class="text-white font-bold text-lg tracking-tight">Admin Console</span>
+                </div>
+                <div class="flex-1 flex flex-col overflow-y-auto px-4 py-6 space-y-1.5">
+                    <span class="px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Modul Data</span>
+                    {{- range .NavItems}}
+                    <a href="/{{.TableName}}" class="flex items-center px-4 py-2.5 text-sm font-medium rounded-xl transition-all {{if .Active}}bg-indigo-600 text-white shadow-md shadow-indigo-600/10{{else}}text-slate-400 hover:bg-slate-800 hover:text-slate-200{{end}}">
+                        <span class="w-2 h-2 rounded-full mr-3 {{if .Active}}bg-white{{else}}bg-slate-500{{end}}"></span>
+                        {{.Name}}
+                    </a>
+                    {{- end}}
+                </div>
+                <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Sistem Aktif (Port: 8000)</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <div class="flex-1 flex flex-col overflow-y-auto">
+            
+            <!-- Mobile Header -->
+            <header class="md:hidden bg-white border-b border-slate-200 h-16 px-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-base">
+                        {{slice .ShortName 0 1}}
+                    </div>
+                    <span class="font-bold text-slate-900">{{.ShortName}} Manager</span>
+                </div>
+                <div class="text-xs text-slate-500 flex items-center space-x-2">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span>Aktif</span>
+                </div>
+            </header>
+
+            <main class="w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-2xl">
+                <!-- Mobile Navigation Tabs -->
+                <div class="flex md:hidden overflow-x-auto py-2 mb-6 border-b border-slate-200 space-x-2 scrollbar-none">
+                    {{- range .NavItems}}
+                    <a href="/{{.TableName}}" class="whitespace-nowrap px-4 py-1.5 text-xs font-semibold rounded-full transition-all {{if .Active}}bg-indigo-600 text-white{{else}}bg-slate-100 text-slate-600 hover:bg-slate-200{{end}}">
+                        {{.Name}}
+                    </a>
+                    {{- end}}
+                </div>
+
+                <!-- Detail Card -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h1 class="text-xl font-bold text-slate-900 mb-4">Detail {{.ShortName}} #{{"{{"}} .Id {{"}}"}}</h1>
+                    
+                    <div class="overflow-hidden border border-slate-100 rounded-xl mb-6">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <tbody class="divide-y divide-slate-100">
+                                {{- range .Fields}}
+                                <tr class="hover:bg-slate-50/50 transition-colors">
+                                    <th class="px-4 py-3 font-semibold text-slate-500 w-1/3 bg-slate-50/50">{{.Name}}</th>
+                                    <td class="px-4 py-3 text-slate-700 break-words whitespace-pre-wrap">
+                                        {{- if eq .HTMLType "file"}}
+                                        {{"{{"}} if .{{.Name}} {{"}}"}}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                            Ada File
+                                        </span>
+                                        {{"{{"}} else {{"}}"}}
+                                        <span class="text-slate-400">-</span>
+                                        {{"{{"}} end {{"}}"}}
+                                        {{- else}}
+                                        {{"{{"}} .{{.Name}} {{"}}"}}
+                                        {{- end}}
+                                    </td>
+                                </tr>
+                                {{- end}}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="flex items-center space-x-3">
+                        <a href="/{{.TableName}}/{{"{{"}} .Id {{"}}"}}/edit" class="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl text-center shadow-md transition-all">Edit</a>
+                        <a href="/{{.TableName}}" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-sm rounded-xl text-center transition-all">Kembali</a>
+                    </div>
+                </div>
+            </main>
         </div>
     </div>
 </body>
@@ -1060,16 +1181,16 @@ func NewV1() {{.TableName}}.I{{.StructName}}V1 {
 var ctrlFormTemplate = template.Must(template.New("ctrl_form").Parse(`package {{.TableName}}
 
 import (
-	"fmt"
-
 	"github.com/gogf/gf/v2/net/ghttp"
+	"github.com/gogf/gf/v2/util/gconv"
 
 	"{{.ModuleName}}/internal/service"
 )
 
 // ShowCreateForm menampilkan form tambah data baru.
 func ShowCreateForm(r *ghttp.Request) {
-	r.Response.RedirectTo("/{{.TableName}}")
+	r.Response.WriteTpl("{{.TableName}}/form.html", nil)
+	r.Exit()
 }
 
 // ShowEditForm menampilkan form edit data berdasarkan ID.
@@ -1079,7 +1200,13 @@ func ShowEditForm(r *ghttp.Request) {
 		r.Response.RedirectTo("/{{.TableName}}")
 		return
 	}
-	r.Response.RedirectTo(fmt.Sprintf("/{{.TableName}}?edit_id=%d", id))
+	data, err := service.{{.StructName}}().Get(r.Context(), id)
+	if err != nil || data == nil {
+		r.Response.RedirectTo("/{{.TableName}}")
+		return
+	}
+	r.Response.WriteTpl("{{.TableName}}/form.html", gconv.Map(data))
+	r.Exit()
 }
 
 // DeleteAction menghapus data berdasarkan ID dari link GET.
@@ -1102,27 +1229,21 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
-	"{{.ModuleName}}/internal/model/entity"
 	"{{.ModuleName}}/internal/service"
 )
 
 func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.ShortName}}Req) (res *v1.List{{.ShortName}}Res, err error) {
-	list, total, err := service.{{.StructName}}().List(ctx, req.Page, req.PageSize)
+	list, total, err := service.{{.StructName}}().List(ctx, req.Page, req.PageSize, req.Keyword)
 	if err != nil {
 		return nil, err
 	}
 
-	var editData *entity.{{.StructName}}
-	if req.EditId != 0 {
-		editData, _ = service.{{.StructName}}().Get(ctx, req.EditId)
-	}
-
 	r := ghttp.RequestFromCtx(ctx)
 	r.Response.WriteTpl("{{.TableName}}/list.html", g.Map{
-		"List":  list,
-		"Total": total,
-		"Page":  req.Page,
-		"Edit":  editData,
+		"List":    list,
+		"Total":   total,
+		"Page":    req.Page,
+		"Keyword": req.Keyword,
 	})
 	r.Exit()
 	return nil, nil
