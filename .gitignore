@@ -1,0 +1,8 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+gf-gen-crud
