@@ -1,7 +1,7 @@
 // Generator CRUD otomatis untuk GoFrame.
 // Membaca semua file entity di internal/model/entity dan men-generate:
 //   - api/<name>/v1/<name>.go         (Request/Response structs)
-//   - internal/logic/<name>/<name>.go (CRUD logic)
+//   - internal/logic/<name>/<name>_gen.go (CRUD logic)
 //   - resource/template/<name>/list.html, form.html, detail.html, filter.html
 //   - internal/controller/<name>/*    (Controller implementations & HTML route handlers)
 //   - Rebuilds internal/cmd/cmd.go to register routes automatically.
@@ -16,6 +16,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -52,6 +53,7 @@ type FieldInfo struct {
 	IsJson      bool     // true = JSON column
 	IsFullWidth bool     // true = render full width in forms
 	DataType    string   // Simplified type: "integer", "string", "boolean", "float", "enum", "datetime", "date", "time", "text"
+	Rules       map[string]interface{}
 }
 
 type NavItem struct {
@@ -88,6 +90,15 @@ type CmdControllerInfo struct {
 	ShortName     string
 }
 
+type TableGenConfig struct {
+	ViewMode   string `json:"viewMode"`
+	FilterType string `json:"filterType"`
+}
+
+type GenConfig struct {
+	Tables map[string]TableGenConfig `json:"table"`
+}
+
 // Fields that should never appear in create/update forms.
 var skipFormFields = map[string]bool{
 	"Id":                    true,
@@ -103,6 +114,69 @@ var skipFormFields = map[string]bool{
 	"PinUser":               true,
 }
 
+func loadGenConfig(root string) *GenConfig {
+	cfg := &GenConfig{Tables: map[string]TableGenConfig{}}
+	data, err := os.ReadFile(filepath.Join(root, "gen.config.json"))
+
+	if err == nil {
+		_ = json.Unmarshal(data, cfg)
+	}
+
+	if cfg.Tables == nil {
+		cfg.Tables = map[string]TableGenConfig{}
+	}
+	return cfg
+}
+
+func saveGenConfig(root string, cfg *GenConfig) {
+	data, err := json.MarshalIndent(cfg, "", " ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(root, "gen.config.json"), data, 0644)
+}
+
+func promptViewAndFilter(tableName string) TableGenConfig {
+	tc := TableGenConfig{ViewMode: "write", FilterType: "both"}
+
+	viewPrompt := promptui.Select{
+		Label: fmt.Sprintf("[%s] Mode view", tableName),
+		Items: []string{
+			"write - tampilkan create, edit, delete",
+			"view - hanya lihat, tanpa aksi tulis",
+		},
+	}
+
+	viewIdx, _, _ := viewPrompt.Run()
+	if viewIdx == 1 {
+		tc.ViewMode = "view"
+	}
+
+	filterPrompt := promptui.Select{
+		Label: fmt.Sprintf("[%s] Filter di halaman List", tableName),
+		Items: []string{
+			"input - satu kolom pencarian (inline di list page)",
+			"form - halaman filter terpisah",
+			"both - inline + halaman filter terpisah",
+			"none - tanpa filter sama sekali",
+		},
+	}
+
+	filterIdx, _, _ := filterPrompt.Run()
+	switch filterIdx {
+	case 0:
+		tc.FilterType = "input"
+	case 1:
+		tc.FilterType = "form"
+	case 2:
+		tc.FilterType = "both"
+	case 3:
+		tc.FilterType = "none"
+	}
+	return tc
+}
+
+// split strings with space, underscore, or hyphen
 func abbrev(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) == 0 {
@@ -533,6 +607,7 @@ func main() {
 	viewModeFlag := flag.String("view-mode", "", "Mode view: write atau view")
 	filterTypeFlag := flag.String("filter-type", "", "Jenis filter: input, form, both, atau none")
 	interactive := flag.Bool("interactive", false, "Jalankan prompt interaktif")
+	reconfigure := flag.Bool("reconfigure", false, "Ubah view-mode & filter-type yang sudah pernah di konfigurasi")
 	flag.Parse()
 
 	isInitMode := !*interactive && *tableFlag == "" && *viewModeFlag == "" && *filterTypeFlag == ""
@@ -650,6 +725,15 @@ echo === Done! ===
 		os.Exit(1)
 	}
 
+	// Load rules.json if it exists
+	var rulesMap map[string]map[string]interface{}
+	rulesPath := filepath.Join(root, "rules.json")
+	if rData, err := os.ReadFile(rulesPath); err == nil {
+		if err := json.Unmarshal(rData, &rulesMap); err != nil {
+			fmt.Printf("Warning: Gagal membaca rules.json: %v\n", err)
+		}
+	}
+
 	var allEntities []*TableInfo
 	for _, f := range files {
 		info, err := parseEntityFile(f, moduleName)
@@ -692,77 +776,44 @@ echo === Done! ===
 			info.ListFields = enrichFields(info.ListFields)
 			info.FormFields = enrichFields(info.FormFields)
 		}
+
+		enrichRules := func(fields []FieldInfo) []FieldInfo {
+			for i, fi := range fields {
+				if rulesMap != nil {
+					rule, exists := rulesMap[fi.JsonTag]
+					if !exists {
+						rule, exists = rulesMap[strings.ToLower(fi.Name)]
+					}
+					if exists {
+						fields[i].Rules = make(map[string]interface{})
+						for k, v := range rule {
+							if k == "type" {
+								if typeStr, ok := v.(string); ok {
+									fields[i].DataType = typeStr
+									if typeStr == "range" {
+										fields[i].HTMLType = "range"
+									}
+								}
+							} else {
+								fields[i].Rules[k] = v
+							}
+						}
+					}
+				}
+			}
+			return fields
+		}
+		info.Fields = enrichRules(info.Fields)
+		info.ListFields = enrichRules(info.ListFields)
+		info.FormFields = enrichRules(info.FormFields)
+
 		allEntities = append(allEntities, info)
 	}
 
-	if *tableFlag != "" {
-		tableSet := map[string]bool{}
-		for _, t := range strings.Split(*tableFlag, ",") {
-			tableSet[strings.TrimSpace(t)] = true
-		}
-		for _, info := range allEntities {
-			if !tableSet[info.TableName] {
-				continue
-			}
-			_ = info
-		}
-	}
+	genConfig := loadGenConfig(root)
 
-	globalIsReadOnly := false
-	globalFilterType := "both"
-	if !*skipView {
-		if *interactive {
-			// Use --view-mode flag if provided, otherwise prompt
-			if *viewModeFlag != "" {
-				globalIsReadOnly = (*viewModeFlag == "view")
-			} else {
-				viewPrompt := promptui.Select{
-					Label: "Mode view untuk tabel yang akan digenerate",
-					Items: []string{
-						"write — tampilkan create, edit, delete",
-						"view  — hanya lihat, tanpa aksi tulis",
-					},
-				}
-				viewIdx, _, _ := viewPrompt.Run()
-				globalIsReadOnly = viewIdx == 1
-			}
-
-			// Use --filter-type flag if provided, otherwise prompt
-			if *filterTypeFlag != "" {
-				globalFilterType = *filterTypeFlag
-			} else {
-				filterPrompt := promptui.Select{
-					Label: "Filter di halaman list",
-					Items: []string{
-						"input — satu kolom pencarian (inline di list page)",
-						"form  — form per-kolom (halaman /filter terpisah)",
-						"both  — keyword inline + tombol buka halaman /filter",
-						"none  — tidak ada filter",
-					},
-				}
-				filterIdx, _, _ := filterPrompt.Run()
-				switch filterIdx {
-				case 0:
-					globalFilterType = "input"
-				case 1:
-					globalFilterType = "form"
-				case 2:
-					globalFilterType = "both"
-				default:
-					globalFilterType = "none"
-				}
-			}
-		} else {
-			// Non-interactive mode
-			if *viewModeFlag != "" {
-				globalIsReadOnly = (*viewModeFlag == "view")
-			}
-			if *filterTypeFlag != "" {
-				globalFilterType = *filterTypeFlag
-			}
-		}
-	}
-
+	// Kumpulkan tabel yang akan diproses (sudah difilter --table kalau ada)
+	var targetTables []*TableInfo
 	for _, info := range allEntities {
 		if *tableFlag != "" {
 			tableSet := map[string]bool{}
@@ -773,7 +824,45 @@ echo === Done! ===
 				continue
 			}
 		}
+		targetTables = append(targetTables, info)
+	}
 
+	// Tentukan konfigurasi SEKALI untuk semua tabel yang perlu (belum known / --reconfigure)
+	if !*skipView {
+		var needsPrompt []string
+		for _, info := range targetTables {
+			_, known := genConfig.Tables[info.TableName]
+			if !known || *reconfigure {
+				needsPrompt = append(needsPrompt, info.TableName)
+			}
+		}
+
+		if len(needsPrompt) > 0 {
+			var tc TableGenConfig
+			switch {
+			case *viewModeFlag != "" || *filterTypeFlag != "":
+				tc = TableGenConfig{ViewMode: "write", FilterType: "both"}
+				if *viewModeFlag != "" {
+					tc.ViewMode = *viewModeFlag
+				}
+				if *filterTypeFlag != "" {
+					tc.FilterType = *filterTypeFlag
+				}
+			case *interactive:
+				fmt.Printf("Tabel berikut belum dikonfigurasi: %s\n", strings.Join(needsPrompt, ", "))
+				tc = promptViewAndFilter("SEMUA tabel di atas")
+			default:
+				tc = TableGenConfig{ViewMode: "write", FilterType: "both"}
+			}
+
+			// Terapkan hasil yang SAMA ke semua tabel yang butuh
+			for _, tn := range needsPrompt {
+				genConfig.Tables[tn] = tc
+			}
+		}
+	}
+
+	for _, info := range targetTables {
 		var navItems []NavItem
 		for _, ent := range allEntities {
 			navItems = append(navItems, NavItem{
@@ -785,8 +874,11 @@ echo === Done! ===
 		}
 		info.NavItems = navItems
 
-		info.IsReadOnly = globalIsReadOnly
-		info.FilterType = globalFilterType
+		if !*skipView {
+			tc := genConfig.Tables[info.TableName] // sudah pasti ada, sudah diisi di atas
+			info.IsReadOnly = tc.ViewMode == "view"
+			info.FilterType = tc.FilterType
+		}
 
 		fmt.Printf("=== Generating: %s (%s) ===\n", info.StructName, info.TableName)
 
@@ -811,7 +903,7 @@ echo === Done! ===
 			if err != nil {
 				fmt.Printf("  [ERROR] logic template: %v\n", err)
 			} else {
-				logicPath := filepath.Join(root, "internal", "logic", info.VarName, info.VarName+".go")
+				logicPath := filepath.Join(root, "internal", "logic", info.VarName, info.VarName+"_gen.go")
 				_ = writeFile(logicPath, logicContent, *overwrite)
 			}
 		}
@@ -1001,4 +1093,6 @@ echo === Done! ===
 	fmt.Println("  1. gf gen service   → update service interfaces")
 	fmt.Println("  2. go build ./...   → pastikan kompilasi sukses")
 	fmt.Println("===================================")
+
+	saveGenConfig(root, genConfig)
 }

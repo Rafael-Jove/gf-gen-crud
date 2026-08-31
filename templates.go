@@ -10,6 +10,8 @@ var apiTemplate = template.Must(template.New("api").Funcs(template.FuncMap{
 }).Parse(`package v1
 
 import (
+	"encoding/json"
+
 	"github.com/gogf/gf/v2/frame/g"
 {{- $hasGtime := false}}
 {{- range .FormFields}}
@@ -29,6 +31,21 @@ type {{.ShortName}}Field struct {
 	Value  interface{} ` + "`" + `json:"value"` + "`" + `
 	Type   string      ` + "`" + `json:"type"` + "`" + `
 	Values []string    ` + "`" + `json:"values,omitempty"` + "`" + `
+	Extra  map[string]interface{}` + "`" + `json:"meta,omitempty"` + "`" + `
+}
+
+func (f {{.ShortName}}Field) MarshalJSON() ([]byte, error) {
+	result := map[string]interface{}{
+		"value": f.Value,
+		"type":  f.Type,
+	}
+	if len(f.Values) > 0 {
+		result["values"] = f.Values
+	}
+	for k, v := range f.Extra {
+		result[k] = v
+	}
+	return json.Marshal(result)
 }
 
 type {{.ShortName}}Item struct {
@@ -677,6 +694,11 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
                                     <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
                                     <span class="text-sm text-slate-600">Aktif</span>
                                 </label>
+                                {{- else if eq .HTMLType "range"}}
+                                <div class="flex items-center gap-3 pt-2">
+                                    <input type="range" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}} {{"}}"}}{{"{{"}} else {{"}}"}}{{if .Rules.min}}{{.Rules.min}}{{else}}0{{end}}{{"{{"}} end {{"}}"}}" min="{{if .Rules.min}}{{.Rules.min}}{{else}}0{{end}}" max="{{if .Rules.max}}{{.Rules.max}}{{else}}100{{end}}" step="{{if .Rules.step}}{{.Rules.step}}{{else}}1{{end}}" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none" oninput="this.nextElementSibling.innerText = this.value" />
+                                    <span class="text-sm font-semibold text-slate-600 min-w-[2.5rem] text-right">{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}} {{"}}"}}{{"{{"}} else {{"}}"}}{{if .Rules.min}}{{.Rules.min}}{{else}}0{{end}}{{"{{"}} end {{"}}"}}</span>
+                                </div>
                                 {{- else}}
                                 <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
                                 {{- end}}
@@ -1289,41 +1311,48 @@ func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.Sh
 			listItems = append(listItems, v1.{{.ShortName}}Item{
 				{{- range .Fields}}
 				{{.Name}}: v1.{{$.ShortName}}Field{
-					Type: "{{.DataType}}",
-					{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
-					Value: gconv.String(item.{{.Name}}),
-					{{- else if eq .HTMLType "date"}}
-					Value: func() interface{} {
-						if g.IsEmpty(item.{{.Name}}) {
-							return nil
-						}
-						return gtime.New(item.{{.Name}}).Layout("2006-01-02")
-					}(),
-					{{- else if eq .HTMLType "datetime-local"}}
-					Value: func() interface{} {
-						if g.IsEmpty(item.{{.Name}}) {
-							return nil
-						}
-						return gtime.New(item.{{.Name}}).Layout("2006-01-02 15:04:05")
-					}(),
-					{{- else if eq .HTMLType "time"}}
-					Value: func() interface{} {
-						if g.IsEmpty(item.{{.Name}}) {
-							return nil
-						}
-						return gtime.New(item.{{.Name}}).Layout("15:04:05")
-					}(),
-					{{- else}}
-					Value: item.{{.Name}},
-					{{- end}}
-					{{- if .EnumValues}}
-					Values: []string{
-						{{- range .EnumValues}}
-						"{{.}}",
-						{{- end}}
-					},
-					{{- end}}
-				},
+                    Type: "{{.DataType}}",
+                    {{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
+                    Value: gconv.String(item.{{.Name}}),
+                    {{- else if eq .HTMLType "date"}}
+                    Value: func() interface{} {
+                        if g.IsEmpty(item.{{.Name}}) {
+                            return nil
+                        }
+                        return gtime.New(item.{{.Name}}).Layout("2006-01-02")
+                    }(),
+                    {{- else if eq .HTMLType "datetime-local"}}
+                    Value: func() interface{} {
+                        if g.IsEmpty(item.{{.Name}}) {
+                            return nil
+                        }
+                        return gtime.New(item.{{.Name}}).Layout("2006-01-02 15:04:05")
+                    }(),
+                    {{- else if eq .HTMLType "time"}}
+                    Value: func() interface{} {
+                        if g.IsEmpty(item.{{.Name}}) {
+                            return nil
+                        }
+                        return gtime.New(item.{{.Name}}).Layout("15:04:05")
+                    }(),
+                    {{- else}}
+                    Value: item.{{.Name}},
+                    {{- end}}
+                    {{- if .EnumValues}}
+                    Values: []string{
+                        {{- range .EnumValues}}
+                        "{{.}}",
+                        {{- end}}
+                    },
+                    {{- end}}
+                    {{- if .Rules}}
+                    Extra: map[string]interface{}{
+                        {{- range $k, $v := .Rules}}
+                        "{{$k}}": {{$v}},
+                        {{- end}}
+                },
+                {{- end}}
+            },
 				{{- end}}
 			})
 		}
@@ -1417,6 +1446,13 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 					Values: []string{
 						{{- range .EnumValues}}
 						"{{.}}",
+						{{- end}}
+					},
+					{{- end}}
+                    {{- if .Rules}}
+					Extra: map[string]interface{}{
+						{{- range $k, $v := .Rules}}
+						"{{$k}}": {{$v}},
 						{{- end}}
 					},
 					{{- end}}
@@ -1547,6 +1583,13 @@ func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.Shor
 					{{- end}}
 				},
 				{{- end}}
+                {{- if .Rules}}
+					Extra: map[string]interface{}{
+						{{- range $k, $v := .Rules}}
+						"{{$k}}": {{$v}},
+						{{- end}}
+					},
+				{{- end}}
 			},
 			{{- end}}
 		}
@@ -1660,6 +1703,13 @@ func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{
 					"{{.}}",
 					{{- end}}
 				},
+				{{- end}}
+                {{- if .Rules}}
+					Extra: map[string]interface{}{
+						{{- range $k, $v := .Rules}}
+						"{{$k}}": {{$v}},
+						{{- end}}
+					},
 				{{- end}}
 			},
 			{{- end}}
@@ -2221,4 +2271,3 @@ var mobileNavHTMLTemplate = template.Must(template.New("mobile_nav_html").Parse(
                         })();
                     </script>
                 </div>`))
-
