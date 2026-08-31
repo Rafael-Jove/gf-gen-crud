@@ -113,7 +113,7 @@ type Create{{.ShortName}}Res struct {
 // ---------- Update ----------
 
 type Update{{.ShortName}}Req struct {
-	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}" method:"post" tags:"{{.StructName}}" summary:"Update {{.ShortName}}"` + "`" + `
+	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}" method:"put" tags:"{{.StructName}}" summary:"Update {{.ShortName}}"` + "`" + `
 	Id     uint64 ` + "`" + `json:"id" v:"required#ID wajib diisi"` + "`" + `
 {{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
@@ -727,8 +727,9 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
             }
         }
 
-        // Intercept form submit to convert raw "HH:MM" time values to full "YYYY-MM-DD HH:MM:SS"
-        // so that GoFrame's gtime.Time parser can bind them successfully instead of falling back to nil/null.
+        // Intercept form submit:
+        // 1. If edit mode (.Id exists), submit via HTTP PUT.
+        // 2. Format raw time inputs to YYYY-MM-DD HH:MM:SS for GoFrame parser.
         document.querySelector('form').addEventListener('submit', function(e) {
             this.querySelectorAll('input[type="time"]').forEach(input => {
                 if (input.value) {
@@ -749,6 +750,25 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
                     }
                 }
             });
+
+            const isEdit = {{"{{"}} if .Id {{"}}"}}true{{"{{"}} else {{"}}"}}false{{"{{"}} end {{"}}"}};
+            if (isEdit) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                fetch(this.action, {
+                    method: 'PUT',
+                    body: formData
+                }).then(res => {
+                    if (res.ok || res.redirected) {
+                        window.location.href = '/{{.TableName}}';
+                    } else {
+                        return res.text().then(text => alert(text || 'Gagal update data'));
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    alert('Terjadi kesalahan koneksi');
+                });
+            }
         });
     </script>
 </body>

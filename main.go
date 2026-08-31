@@ -607,10 +607,9 @@ func main() {
 	viewModeFlag := flag.String("view-mode", "", "Mode view: write atau view")
 	filterTypeFlag := flag.String("filter-type", "", "Jenis filter: input, form, both, atau none")
 	interactive := flag.Bool("interactive", false, "Jalankan prompt interaktif")
+	initFlag := flag.Bool("init", false, "Inisialisasi driver database dan helper gen.bat")
 	reconfigure := flag.Bool("reconfigure", false, "Ubah view-mode & filter-type yang sudah pernah di konfigurasi")
 	flag.Parse()
-
-	isInitMode := !*interactive && *tableFlag == "" && *viewModeFlag == "" && *filterTypeFlag == ""
 
 	root, _ := filepath.Abs(".")
 	entityDir := filepath.Join(root, "internal", "model", "entity")
@@ -627,9 +626,9 @@ func main() {
 		}
 	}
 
-	// Mandatory interactive terminal choice for database driver
+	// Mandatory interactive terminal choice for database driver if initializing
 	var driverType string
-	if !hasDriver && (isInitMode || *interactive) {
+	if !hasDriver && (*initFlag || *interactive) {
 		prompt := promptui.Select{
 			Label: "Pilih driver database yang ingin Anda gunakan di project ini",
 			Items: []string{
@@ -707,11 +706,11 @@ echo === Done! ===
 		_ = writeFile(genBatPath, genBatContent, false)
 	}
 
-	if isInitMode {
+	if *initFlag {
 		fmt.Println("=== Proyek berhasil di-inisialisasi! ===")
 		fmt.Println("Silakan gunakan perintah berikut untuk mulai men-generate kode CRUD:")
-		fmt.Println("  .\\gen             \u2192 Men-generate semua tabel secara interaktif")
-		fmt.Println("  .\\gen --table=xyz \u2192 Men-generate tabel tertentu secara interaktif")
+		fmt.Println("  .\\gen             → Men-generate semua tabel secara interaktif")
+		fmt.Println("  .\\gen --table=xyz → Men-generate tabel tertentu secara interaktif")
 		fmt.Println("========================================")
 		os.Exit(0)
 	}
@@ -903,7 +902,9 @@ echo === Done! ===
 			if err != nil {
 				fmt.Printf("  [ERROR] logic template: %v\n", err)
 			} else {
-				logicPath := filepath.Join(root, "internal", "logic", info.VarName, info.VarName+"_gen.go")
+				logicDir := filepath.Join(root, "internal", "logic", info.VarName)
+				logicPath := filepath.Join(logicDir, info.VarName+".go")
+				_ = os.Remove(filepath.Join(logicDir, info.VarName+"_gen.go"))
 				_ = writeFile(logicPath, logicContent, *overwrite)
 			}
 		}
