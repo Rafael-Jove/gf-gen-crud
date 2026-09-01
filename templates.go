@@ -30,6 +30,7 @@ import (
 type {{.ShortName}}Field struct {
 	Value  interface{} ` + "`" + `json:"value"` + "`" + `
 	Type   string      ` + "`" + `json:"type"` + "`" + `
+	IsPK   bool        ` + "`" + `json:"is_pk,omitempty"` + "`" + `
 	Values []string    ` + "`" + `json:"values,omitempty"` + "`" + `
 	Extra  map[string]interface{}` + "`" + `json:"meta,omitempty"` + "`" + `
 }
@@ -38,6 +39,9 @@ func (f {{.ShortName}}Field) MarshalJSON() ([]byte, error) {
 	result := map[string]interface{}{
 		"value": f.Value,
 		"type":  f.Type,
+	}
+	if f.IsPK {
+		result["is_pk"] = true
 	}
 	if len(f.Values) > 0 {
 		result["values"] = f.Values
@@ -1332,6 +1336,9 @@ func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.Sh
 				{{- range .Fields}}
 				{{.Name}}: v1.{{$.ShortName}}Field{
                     Type: "{{.DataType}}",
+                    {{- if .IsPK}}
+                    IsPK: true,
+                    {{- end}}
                     {{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
                     Value: gconv.String(item.{{.Name}}),
                     {{- else if eq .HTMLType "date"}}
@@ -1436,6 +1443,9 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 				{{- range .Fields}}
 				{{.Name}}: v1.{{$.ShortName}}Field{
 					Type: "{{.DataType}}",
+					{{- if .IsPK}}
+					IsPK: true,
+					{{- end}}
 					{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
 					Value: gconv.String(item.{{.Name}}),
 					{{- else if eq .HTMLType "date"}}
@@ -1570,6 +1580,9 @@ func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.Shor
 			{{- range .Fields}}
 			{{.Name}}: v1.{{$.ShortName}}Field{
 				Type: "{{.DataType}}",
+				{{- if .IsPK}}
+				IsPK: true,
+				{{- end}}
 				{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
 				Value: gconv.String(data.{{.Name}}),
 				{{- else if eq .HTMLType "date"}}
@@ -1691,6 +1704,9 @@ func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{
 			{{- range .Fields}}
 			{{.Name}}: v1.{{$.ShortName}}Field{
 				Type: "{{.DataType}}",
+				{{- if .IsPK}}
+				IsPK: true,
+				{{- end}}
 				{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
 				Value: gconv.String(data.{{.Name}}),
 				{{- else if eq .HTMLType "date"}}

@@ -52,6 +52,7 @@ type FieldInfo struct {
 	EnumValues  []string // non-empty = render as <select> with these options
 	IsJson      bool     // true = JSON column
 	IsFullWidth bool     // true = render full width in forms
+	IsPK        bool     // true = Primary Key
 	DataType    string   // Simplified type: "integer", "string", "boolean", "float", "enum", "datetime", "date", "time", "text"
 	Rules       map[string]interface{}
 }
@@ -293,6 +294,7 @@ type DBColMeta struct {
 	EnumValues  []string
 	IsJson      bool
 	IsFullWidth bool
+	IsPK        bool
 	DataType    string
 }
 
@@ -353,7 +355,7 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT COLUMN_NAME, COLUMN_TYPE
+		SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY
 		FROM INFORMATION_SCHEMA.COLUMNS
 		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
 		ORDER BY ORDINAL_POSITION`, tableName)
@@ -364,13 +366,16 @@ func fetchDBColumnTypes(root, tableName string) map[string]DBColMeta {
 
 	result := map[string]DBColMeta{}
 	for rows.Next() {
-		var colName, colType string
-		if err := rows.Scan(&colName, &colType); err != nil {
+		var colName, colType, colKey string
+		if err := rows.Scan(&colName, &colType, &colKey); err != nil {
 			continue
 		}
 		colTypeLow := strings.ToLower(colType)
 		colNameLow := strings.ToLower(colName)
 		meta := DBColMeta{HTMLType: "text", DataType: "string"}
+		if strings.ToUpper(colKey) == "PRI" {
+			meta.IsPK = true
+		}
 		if strings.Contains(colTypeLow, "json") || strings.Contains(colNameLow, "json") || strings.Contains(colNameLow, "metadata") {
 			meta.IsJson = true
 			meta.IsFullWidth = true
@@ -744,6 +749,8 @@ echo === Done! ===
 		if len(dbCols) > 0 {
 			enrichFields := func(fields []FieldInfo) []FieldInfo {
 				for i, fi := range fields {
+					lowName := strings.ToLower(fi.Name)
+					lowOrm := strings.ToLower(fi.OrmTag)
 					if meta, ok := dbCols[fi.OrmTag]; ok {
 						fields[i].HTMLType = meta.HTMLType
 						fields[i].IsTextarea = meta.IsTextarea
@@ -751,6 +758,7 @@ echo === Done! ===
 						fields[i].IsJson = meta.IsJson
 						fields[i].IsFullWidth = meta.IsFullWidth
 						fields[i].DataType = meta.DataType
+						fields[i].IsPK = meta.IsPK
 						if meta.HTMLType == "file" {
 							info.HasUpload = true
 						}
@@ -758,7 +766,6 @@ echo === Done! ===
 							info.HasGtime = true
 						}
 					} else {
-						lowName := strings.ToLower(fi.Name)
 						if fi.IsTextarea || fi.HTMLType == "file" || fi.HTMLType == "textarea" ||
 							strings.Contains(lowName, "address") || strings.Contains(lowName, "alamat") ||
 							strings.Contains(lowName, "desc") || strings.Contains(lowName, "deskripsi") ||
@@ -767,6 +774,10 @@ echo === Done! ===
 							strings.Contains(lowName, "avatar") || strings.Contains(lowName, "cover") {
 							fields[i].IsFullWidth = true
 						}
+					}
+					// Fallback check if ID column
+					if !fields[i].IsPK && (lowName == "id" || lowOrm == "id" || strings.HasSuffix(lowOrm, "_id") && len(lowOrm) == 3) {
+						fields[i].IsPK = true
 					}
 				}
 				return fields
