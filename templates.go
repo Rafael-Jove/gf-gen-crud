@@ -15,7 +15,7 @@ import(
 {{- range .Fields}}
 {{- if contains .Type "gtime"}}{{$hasGtime = true}}{{end}}
 {{- end}}
-{{- if $hasGtime}}
+{{- if or $hasGtime .HasGtime}}
     "github.com/gogf/gf/v2/os/gtime"
 {{- end}}
     "{{.ModuleName}}/internal/model/entity"
