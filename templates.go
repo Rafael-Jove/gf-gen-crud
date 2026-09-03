@@ -5,6 +5,43 @@ import (
 	"text/template"
 )
 
+var modelTemplate = template.Must(template.New("model").Parse(`package model
+
+import(
+    "fmt"
+    "{{.ModuleName}}/internal/model/entity"
+)
+
+// {{.ShortName}}ListInput adalah DTO input untuk pencarian, sorting, dan filter data {{.ShortName}}
+type {{.ShortName}}ListInput struct {
+	Page      int                    ` + "`" + `json:"page"` + "`" + `
+	PageSize  int                    ` + "`" + `json:"page_size"` + "`" + `
+	Keyword   string                 ` + "`" + `json:"keyword"` + "`" + `
+	SortBy    string                 ` + "`" + `json:"sort_by"` + "`" + `
+	SortOrder string                 ` + "`" + `json:"sort_order"` + "`" + `
+	Filters   map[string]interface{} ` + "`" + `json:"filters"` + "`" + `
+}
+
+type {{.ShortName}}Output struct{
+    {{- range .Fields}}
+        {{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
+    {{- end}}
+        Label string ` + "`" + `json:"label"` + "`" + `
+}
+
+func To{{.ShortName}}Output(item *entity.{{.StructName}}) {{.ShortName}}Output {
+    if item == nil {
+        return {{.ShortName}}Output{}
+    }
+    return {{.ShortName}}Output{
+        {{- range .Fields}}
+            {{.Name}}: item.{{.Name}},
+        {{- end}}
+            Label: fmt.Sprintf("%v", item.{{.LabelFieldName}}),
+    }
+}
+`))
+
 var apiTemplate = template.Must(template.New("api").Funcs(template.FuncMap{
 	"contains": strings.Contains,
 }).Parse(`package v1
@@ -12,7 +49,15 @@ var apiTemplate = template.Must(template.New("api").Funcs(template.FuncMap{
 import (
 	"encoding/json"
 
+	"github.com/gogf/gf/v2/container/gmap"
 	"github.com/gogf/gf/v2/frame/g"
+{{- $hasFile := false}}
+{{- range .FormFields}}
+{{- if eq .HTMLType "file"}}{{$hasFile = true}}{{end}}
+{{- end}}
+{{- if $hasFile}}
+	"github.com/gogf/gf/v2/net/ghttp"
+{{- end}}
 {{- $hasGtime := false}}
 {{- range .FormFields}}
 {{- if contains .Type "gtime"}}{{$hasGtime = true}}{{end}}
@@ -20,25 +65,22 @@ import (
 {{- if $hasGtime}}
 	"github.com/gogf/gf/v2/os/gtime"
 {{- end}}
-{{- if .HasUpload}}
-	"github.com/gogf/gf/v2/net/ghttp"
-{{- end}}
 )
 
 // ---------- Data Item Model (with correct JSON types) ----------
 
 type {{.ShortName}}Field struct {
-	Value  interface{} ` + "`" + `json:"value"` + "`" + `
-	Type   string      ` + "`" + `json:"type"` + "`" + `
-	IsPK   bool        ` + "`" + `json:"is_pk,omitempty"` + "`" + `
-	Values []string    ` + "`" + `json:"values,omitempty"` + "`" + `
-	Extra  map[string]interface{}` + "`" + `json:"meta,omitempty"` + "`" + `
+	Type       string                 ` + "`" + `json:"type"` + "`" + `
+	IsPK       bool                   ` + "`" + `json:"is_pk,omitempty"` + "`" + `
+	IsRequired bool                   ` + "`" + `json:"is_required"` + "`" + `
+	Values     []string               ` + "`" + `json:"values,omitempty"` + "`" + `
+	Extra      map[string]interface{} ` + "`" + `json:"meta,omitempty"` + "`" + `
 }
 
 func (f {{.ShortName}}Field) MarshalJSON() ([]byte, error) {
 	result := map[string]interface{}{
-		"value": f.Value,
-		"type":  f.Type,
+		"type":        f.Type,
+		"is_required": f.IsRequired,
 	}
 	if f.IsPK {
 		result["is_pk"] = true
@@ -52,7 +94,7 @@ func (f {{.ShortName}}Field) MarshalJSON() ([]byte, error) {
 	return json.Marshal(result)
 }
 
-type {{.ShortName}}Item struct {
+type {{.ShortName}}Header struct {
 {{- range .Fields}}
 	{{.Name}} {{$.ShortName}}Field ` + "`" + `json:"{{.JsonTag}}"` + "`" + `
 {{- end}}
@@ -61,64 +103,83 @@ type {{.ShortName}}Item struct {
 // ---------- List ----------
 
 type List{{.ShortName}}Req struct {
-	g.Meta   ` + "`" + `path:"/{{.TableName}}" method:"get" tags:"{{.StructName}}" summary:"Daftar {{.ShortName}}"` + "`" + `
-	Page     int ` + "`" + `json:"page" d:"1"` + "`" + `
-	PageSize int ` + "`" + `json:"page_size" d:"10"` + "`" + `
-	Keyword  string ` + "`" + `json:"keyword"` + "`" + `
+	g.Meta    ` + "`" + `path:"/{{.TableName}}" method:"get" tags:"{{.StructName}}" summary:"Daftar {{.ShortName}}"` + "`" + `
+	Page      int    ` + "`" + `json:"page" p:"page"` + "`" + `
+	PageSize  int    ` + "`" + `json:"page_size" p:"page_size"` + "`" + `
+	Keyword   string ` + "`" + `json:"keyword" p:"keyword"` + "`" + `
+	SortBy    string ` + "`" + `json:"sort_by" p:"sort_by"` + "`" + `
+	SortOrder string ` + "`" + `json:"sort_order" p:"sort_order"` + "`" + `
 }
 
 type List{{.ShortName}}Res struct {
-	List  []{{.ShortName}}Item ` + "`" + `json:"list"` + "`" + `
-	Total int                  ` + "`" + `json:"total"` + "`" + `
-	Page  int                  ` + "`" + `json:"page"` + "`" + `
+	Header        {{.ShortName}}Header ` + "`" + `json:"header"` + "`" + `
+	Value         []*gmap.ListMap      ` + "`" + `json:"value"` + "`" + `
+	Values        []*gmap.ListMap      ` + "`" + `json:"values,omitempty"` + "`" + `
+	Total         int                  ` + "`" + `json:"total"` + "`" + `
+	Page          int                  ` + "`" + `json:"page"` + "`" + `
+	PageSize      int                  ` + "`" + `json:"page_size"` + "`" + `
+	JumlahHalaman int                  ` + "`" + `json:"jumlah_halaman"` + "`" + `
+	TotalPage     int                  ` + "`" + `json:"total_page"` + "`" + `
 }
 
 // ---------- Filter ----------
 
 type Filter{{.ShortName}}Req struct {
-	g.Meta   ` + "`" + `path:"/{{.TableName}}/filter" method:"get" tags:"{{.StructName}}" summary:"Halaman Filter {{.ShortName}}"` + "`" + `
-	Page     int ` + "`" + `json:"page" d:"1"` + "`" + `
-	PageSize int ` + "`" + `json:"page_size" d:"10"` + "`" + `
-	Keyword  string ` + "`" + `json:"keyword"` + "`" + `
+	g.Meta    ` + "`" + `path:"/{{.TableName}}/filter" method:"get" tags:"{{.StructName}}" summary:"Halaman Filter {{.ShortName}}"` + "`" + `
+	Page      int    ` + "`" + `json:"page" p:"page"` + "`" + `
+	PageSize  int    ` + "`" + `json:"page_size" p:"page_size"` + "`" + `
+	Keyword   string ` + "`" + `json:"keyword" p:"keyword"` + "`" + `
+	SortBy    string ` + "`" + `json:"sort_by" p:"sort_by"` + "`" + `
+	SortOrder string ` + "`" + `json:"sort_order" p:"sort_order"` + "`" + `
 }
 
 type Filter{{.ShortName}}Res struct {
-	List  []{{.ShortName}}Item ` + "`" + `json:"list"` + "`" + `
-	Total int                  ` + "`" + `json:"total"` + "`" + `
-	Page  int                  ` + "`" + `json:"page"` + "`" + `
+	Header        {{.ShortName}}Header ` + "`" + `json:"header"` + "`" + `
+	Value         []*gmap.ListMap      ` + "`" + `json:"value"` + "`" + `
+	Values        []*gmap.ListMap      ` + "`" + `json:"values,omitempty"` + "`" + `
+	Total         int                  ` + "`" + `json:"total"` + "`" + `
+	Page          int                  ` + "`" + `json:"page"` + "`" + `
+	PageSize      int                  ` + "`" + `json:"page_size"` + "`" + `
+	JumlahHalaman int                  ` + "`" + `json:"jumlah_halaman"` + "`" + `
+	TotalPage     int                  ` + "`" + `json:"total_page"` + "`" + `
 }
 
 // ---------- Get ----------
 
 type Get{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}" method:"get" tags:"{{.StructName}}" summary:"Detail {{.ShortName}}"` + "`" + `
-	Id     uint64 ` + "`" + `json:"id" v:"required#ID wajib diisi"` + "`" + `
+	Id     {{if .PKType}}{{.PKType}}{{else}}uint64{{end}} ` + "`" + `json:"id" in:"path" v:"required#ID wajib diisi"` + "`" + `
 }
 
 type Get{{.ShortName}}Res struct {
-	Data *{{.ShortName}}Item ` + "`" + `json:"data"` + "`" + `
+	Header {{.ShortName}}Header ` + "`" + `json:"header"` + "`" + `
+	Value  *gmap.ListMap        ` + "`" + `json:"value"` + "`" + `
+	Values *gmap.ListMap        ` + "`" + `json:"values,omitempty"` + "`" + `
 }
 
+{{- if not .IsReadOnly}}
 type Create{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}" method:"post" tags:"{{.StructName}}" summary:"Buat {{.ShortName}} baru"` + "`" + `
 {{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
-	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" type:"file" v:"required#{{.Name}} wajib diisi"` + "`" + `
+	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" type:"file"{{if .IsRequired}} v:"required#{{.Name}} wajib diisi"{{end}}` + "`" + `
 	{{- else}}
-	{{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}" v:"required#{{.Name}} wajib diisi"` + "`" + `
+	{{.Name}} {{.Type}} ` + "`" + `json:"{{.JsonTag}}"{{if .IsRequired}} v:"required#{{.Name}} wajib diisi"{{end}}` + "`" + `
 	{{- end}}
 {{- end}}
 }
 
 type Create{{.ShortName}}Res struct {
-	Data *{{.ShortName}}Item ` + "`" + `json:"data"` + "`" + `
+	Header {{.ShortName}}Header ` + "`" + `json:"header"` + "`" + `
+	Value  *gmap.ListMap        ` + "`" + `json:"value"` + "`" + `
+	Values *gmap.ListMap        ` + "`" + `json:"values,omitempty"` + "`" + `
 }
 
 // ---------- Update ----------
 
 type Update{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}" method:"put" tags:"{{.StructName}}" summary:"Update {{.ShortName}}"` + "`" + `
-	Id     uint64 ` + "`" + `json:"id" v:"required#ID wajib diisi"` + "`" + `
+	Id     {{if .PKType}}{{.PKType}}{{else}}uint64{{end}} ` + "`" + `json:"id" in:"path" v:"required#ID wajib diisi"` + "`" + `
 {{- range .FormFields}}
 	{{- if eq .HTMLType "file"}}
 	{{.Name}} *ghttp.UploadFile ` + "`" + `json:"{{.JsonTag}}" type:"file"` + "`" + `
@@ -136,12 +197,43 @@ type Update{{.ShortName}}Res struct {
 
 type Delete{{.ShortName}}Req struct {
 	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}" method:"delete" tags:"{{.StructName}}" summary:"Hapus {{.ShortName}}"` + "`" + `
-	Id     uint64 ` + "`" + `json:"id" v:"required#ID wajib diisi"` + "`" + `
+	Id     {{if .PKType}}{{.PKType}}{{else}}uint64{{end}} ` + "`" + `json:"id" in:"path" v:"required#ID wajib diisi"` + "`" + `
 }
 
 type Delete{{.ShortName}}Res struct {
 	Message string ` + "`" + `json:"message"` + "`" + `
 }
+
+// ---------- Batch Delete ----------
+
+type BatchDelete{{.ShortName}}Req struct {
+	g.Meta ` + "`" + `path:"/{{.TableName}}/batch-delete" method:"post" tags:"{{.StructName}}" summary:"Hapus Massal {{.ShortName}}"` + "`" + `
+	Ids    []{{if .PKType}}{{.PKType}}{{else}}uint64{{end}} ` + "`" + `json:"ids" p:"ids" v:"required#Pilih minimal satu data untuk dihapus"` + "`" + `
+}
+
+type BatchDelete{{.ShortName}}Res struct {
+	Count int64 ` + "`" + `json:"count"` + "`" + `
+}
+
+// ---------- HTML Forms & Actions ----------
+
+type ShowCreateFormReq struct {
+	g.Meta ` + "`" + `path:"/{{.TableName}}/create" method:"get" tags:"{{.StructName}}" summary:"Form Tambah {{.ShortName}}"` + "`" + `
+}
+type ShowCreateFormRes struct{}
+
+type ShowEditFormReq struct {
+	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}/edit" method:"get" tags:"{{.StructName}}" summary:"Form Edit {{.ShortName}}"` + "`" + `
+	Id     {{if .PKType}}{{.PKType}}{{else}}uint64{{end}} ` + "`" + `json:"id" in:"path" v:"required#ID wajib diisi"` + "`" + `
+}
+type ShowEditFormRes struct{}
+
+type DeleteActionReq struct {
+	g.Meta ` + "`" + `path:"/{{.TableName}}/{id}/delete" method:"post" tags:"{{.StructName}}" summary:"Hapus {{.ShortName}} Action"` + "`" + `
+	Id     {{if .PKType}}{{.PKType}}{{else}}uint64{{end}} ` + "`" + `json:"id" in:"path" v:"required#ID wajib diisi"` + "`" + `
+}
+type DeleteActionRes struct{}
+{{- end}}
 `))
 
 var apiInterfaceTemplate = template.Must(template.New("api_interface").Parse(`// =================================================================================
@@ -157,12 +249,20 @@ import (
 )
 
 type I{{.StructName}}V1 interface {
+	{{- if not .IsReadOnly}}
+	ShowCreateForm(ctx context.Context, req *v1.ShowCreateFormReq) (res *v1.ShowCreateFormRes, err error)
+	ShowEditForm(ctx context.Context, req *v1.ShowEditFormReq) (res *v1.ShowEditFormRes, err error)
+	DeleteAction(ctx context.Context, req *v1.DeleteActionReq) (res *v1.DeleteActionRes, err error)
+	{{- end}}
 	List{{.ShortName}}(ctx context.Context, req *v1.List{{.ShortName}}Req) (res *v1.List{{.ShortName}}Res, err error)
 	Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{{.ShortName}}Req) (res *v1.Filter{{.ShortName}}Res, err error)
 	Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.ShortName}}Req) (res *v1.Get{{.ShortName}}Res, err error)
+	{{- if not .IsReadOnly}}
 	Create{{.ShortName}}(ctx context.Context, req *v1.Create{{.ShortName}}Req) (res *v1.Create{{.ShortName}}Res, err error)
 	Update{{.ShortName}}(ctx context.Context, req *v1.Update{{.ShortName}}Req) (res *v1.Update{{.ShortName}}Res, err error)
 	Delete{{.ShortName}}(ctx context.Context, req *v1.Delete{{.ShortName}}Req) (res *v1.Delete{{.ShortName}}Res, err error)
+	BatchDelete{{.ShortName}}(ctx context.Context, req *v1.BatchDelete{{.ShortName}}Req) (res *v1.BatchDelete{{.ShortName}}Res, err error)
+	{{- end}}
 }
 `))
 
@@ -170,11 +270,15 @@ var logicTemplate = template.Must(template.New("logic").Parse(`package {{.VarNam
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
-	"github.com/gogf/gf/v2/net/ghttp"
+	"github.com/gogf/gf/v2/util/gconv"
 	"{{.ModuleName}}/internal/dao"
+	"{{.ModuleName}}/internal/model"
+	{{- if not .IsReadOnly}}
 	"{{.ModuleName}}/internal/model/do"
+	{{- end}}
 	"{{.ModuleName}}/internal/model/entity"
 	"{{.ModuleName}}/internal/service"
 )
@@ -189,93 +293,144 @@ func New() *s{{.StructName}} {
 	return &s{{.StructName}}{}
 }
 
-// List mengambil daftar {{.ShortName}} dengan pagination, keyword filter, dan form filters.
-func (s *s{{.StructName}}) List(ctx context.Context, page, pageSize int, keyword string) (list []*entity.{{.StructName}}, total int, err error) {
+// List mengambil daftar {{.ShortName}} dengan pagination, keyword filter, form filters, dan sorting.
+func (s *s{{.StructName}}) List(ctx context.Context, in model.{{.ShortName}}ListInput) (list []*entity.{{.StructName}}, total int, err error) {
 	m := dao.{{.StructName}}.Ctx(ctx)
 
-	// Apply form filters starting with f_ from HTTP request
-	r := ghttp.RequestFromCtx(ctx)
-	if r != nil {
+	// Apply dynamic form filters from in.Filters
+	if len(in.Filters) > 0 {
 		{{- range .FormFields}}
 		{{- if .EnumValues}}
-		if val := r.Get("f_{{.JsonTag}}").String(); val != "" {
+		if val := gconv.String(in.Filters["f_{{.JsonTag}}"]); val != "" {
 			m = m.Where("` + "`" + `{{.OrmTag}}` + "`" + `", val)
 		}
 		{{- else if eq .HTMLType "checkbox"}}
-		if val := r.Get("f_{{.JsonTag}}").String(); val != "" {
+		if val := gconv.String(in.Filters["f_{{.JsonTag}}"]); val != "" {
 			m = m.Where("` + "`" + `{{.OrmTag}}` + "`" + `", val)
 		}
 		{{- else if eq .HTMLType "number"}}
-		if valMin := r.Get("f_{{.JsonTag}}_min").String(); valMin != "" {
+		if valMin := gconv.String(in.Filters["f_{{.JsonTag}}_min"]); valMin != "" {
 			m = m.WhereGTE("` + "`" + `{{.OrmTag}}` + "`" + `", valMin)
 		}
-		if valMax := r.Get("f_{{.JsonTag}}_max").String(); valMax != "" {
+		if valMax := gconv.String(in.Filters["f_{{.JsonTag}}_max"]); valMax != "" {
 			m = m.WhereLTE("` + "`" + `{{.OrmTag}}` + "`" + `", valMax)
 		}
 		{{- else if or (eq .HTMLType "date") (eq .HTMLType "datetime-local") (eq .HTMLType "time")}}
-		if valFrom := r.Get("f_{{.JsonTag}}_from").String(); valFrom != "" {
+		if valFrom := gconv.String(in.Filters["f_{{.JsonTag}}_from"]); valFrom != "" {
 			m = m.WhereGTE("` + "`" + `{{.OrmTag}}` + "`" + `", valFrom)
 		}
-		if valTo := r.Get("f_{{.JsonTag}}_to").String(); valTo != "" {
+		if valTo := gconv.String(in.Filters["f_{{.JsonTag}}_to"]); valTo != "" {
 			m = m.WhereLTE("` + "`" + `{{.OrmTag}}` + "`" + `", valTo)
 		}
 		{{- else if eq .Type "string"}}
-		if val := r.Get("f_{{.JsonTag}}").String(); val != "" {
+		if val := gconv.String(in.Filters["f_{{.JsonTag}}"]); val != "" {
 			m = m.Where("` + "`" + `{{.OrmTag}}` + "`" + ` LIKE ?", "%"+val+"%")
 		}
 		{{- else}}
-		if val := r.Get("f_{{.JsonTag}}").String(); val != "" {
+		if val := gconv.String(in.Filters["f_{{.JsonTag}}"]); val != "" {
 			m = m.Where("` + "`" + `{{.OrmTag}}` + "`" + `", val)
 		}
 		{{- end}}
 		{{- end}}
 	}
 
-	if keyword != "" {
+	// Keyword search (hanya mencari pada kolom string/text agar kompatibel dengan PostgreSQL & MySQL)
+	if in.Keyword != "" {
 		var conds []string
 		var args []interface{}
 		{{- range .ListFields}}
+		{{- if .IsSearchable}}
 		conds = append(conds, "` + "`" + `{{.OrmTag}}` + "`" + ` LIKE ?")
-		args = append(args, "%"+keyword+"%")
+		args = append(args, "%"+in.Keyword+"%")
+		{{- end}}
 		{{- end}}
 		if len(conds) > 0 {
 			m = m.Where(strings.Join(conds, " OR "), args...)
 		}
 	}
+
+	// Sorting dengan whitelist kolom untuk mencegah SQL injection
+	allowedSortCols := map[string]bool{
+		{{- range .Fields}}
+		"{{.OrmTag}}": true,
+		{{- end}}
+	}
+	if in.SortBy != "" && allowedSortCols[in.SortBy] {
+		order := "ASC"
+		if strings.ToUpper(in.SortOrder) == "DESC" {
+			order = "DESC"
+		}
+		m = m.Order(fmt.Sprintf("` + "`" + `%s` + "`" + ` %s", in.SortBy, order))
+	} else {
+		m = m.Order("` + "`" + `{{.PKOrmTag}}` + "`" + ` DESC")
+	}
+
 	total, err = m.Count()
 	if err != nil {
 		return
 	}
-	err = m.Page(page, pageSize).Scan(&list)
+	if in.Page > 0 && in.PageSize > 0 {
+		err = m.Page(in.Page, in.PageSize).Scan(&list)
+	} else if in.PageSize > 0 {
+		err = m.Limit(in.PageSize).Scan(&list)
+	} else {
+		err = m.Scan(&list)
+	}
 	return
 }
 
 // Get mengambil satu {{.ShortName}} berdasarkan ID.
-func (s *s{{.StructName}}) Get(ctx context.Context, id uint64) (data *entity.{{.StructName}}, err error) {
+func (s *s{{.StructName}}) Get(ctx context.Context, id {{if .PKType}}{{.PKType}}{{else}}uint64{{end}}) (data *entity.{{.StructName}}, err error) {
 	err = dao.{{.StructName}}.Ctx(ctx).WherePri(id).Scan(&data)
 	return
 }
 
+{{- if not .IsReadOnly}}
 // Create membuat {{.ShortName}} baru.
 func (s *s{{.StructName}}) Create(ctx context.Context, in do.{{.StructName}}) (data *entity.{{.StructName}}, err error) {
+	{{- if .IsPKAutoIncrement}}
 	lastId, err := dao.{{.StructName}}.Ctx(ctx).Data(in).InsertAndGetId()
 	if err != nil {
 		return
 	}
-	return s.Get(ctx, uint64(lastId))
+	return s.Get(ctx, {{if eq .PKType "uint64"}}uint64(lastId){{else if eq .PKType "int"}}int(lastId){{else}}lastId{{end}})
+	{{- else}}
+	_, err = dao.{{.StructName}}.Ctx(ctx).Data(in).Insert()
+	if err != nil {
+		return
+	}
+	// Ambil data yang baru dibuat berdasarkan primary key
+	if pkVal := in.{{.PKName}}; pkVal != nil {
+		return s.Get(ctx, gconv.{{if eq .PKType "string"}}String{{else if eq .PKType "int"}}Int{{else}}Uint64{{end}}(pkVal))
+	}
+	return nil, nil
+	{{- end}}
 }
 
 // Update mengupdate {{.ShortName}} berdasarkan ID.
-func (s *s{{.StructName}}) Update(ctx context.Context, id uint64, in do.{{.StructName}}) (err error) {
+func (s *s{{.StructName}}) Update(ctx context.Context, id {{if .PKType}}{{.PKType}}{{else}}uint64{{end}}, in do.{{.StructName}}) (err error) {
 	_, err = dao.{{.StructName}}.Ctx(ctx).WherePri(id).Data(in).Update()
 	return
 }
 
 // Delete menghapus {{.ShortName}} berdasarkan ID.
-func (s *s{{.StructName}}) Delete(ctx context.Context, id uint64) (err error) {
+func (s *s{{.StructName}}) Delete(ctx context.Context, id {{if .PKType}}{{.PKType}}{{else}}uint64{{end}}) (err error) {
 	_, err = dao.{{.StructName}}.Ctx(ctx).WherePri(id).Delete()
 	return
 }
+
+// BatchDelete menghapus banyak {{.ShortName}} sekaligus berdasarkan daftar ID.
+func (s *s{{.StructName}}) BatchDelete(ctx context.Context, ids []{{if .PKType}}{{.PKType}}{{else}}uint64{{end}}) (count int64, err error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	res, err := dao.{{.StructName}}.Ctx(ctx).WhereIn(dao.{{.StructName}}.Columns().{{.PKName}}, ids).Delete()
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+{{- end}}
 `))
 
 var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.FuncMap{
@@ -416,15 +571,39 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                 <!-- Table Card -->
                 <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
                     <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                        <h2 class="font-bold text-slate-900">Total: {{"{{"}} .Total {{"}}"}} data</h2>
+                        <div class="flex items-center gap-3">
+                            <h2 class="font-bold text-slate-900">Total: {{"{{"}} .Total {{"}}"}} data</h2>
+                            {{- if not .IsReadOnly}}
+                            <button id="btn-batch-delete" type="button" onclick="submitBatchDelete()" disabled class="opacity-0 pointer-events-none transition-all duration-200 inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg shadow-sm">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                <span>Hapus Terpilih (<span id="selected-count">0</span>)</span>
+                            </button>
+                            {{- end}}
+                        </div>
                     </div>
 
                     <div class="overflow-x-auto relative">
                         <table class="w-full text-left border-collapse min-w-[800px]">
                             <thead>
                                 <tr class="bg-slate-50 border-b border-slate-100">
+                                    {{- if not .IsReadOnly}}
+                                    <th class="w-10 px-4 py-3.5 text-center">
+                                        <input type="checkbox" id="check-all" onclick="toggleSelectAll(this)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+                                    </th>
+                                    {{- end}}
                                     {{- range .ListFields}}
-                                    <th class="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{{.Name}}</th>
+                                    <th class="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600 transition-colors select-none" onclick="sortBy('{{.OrmTag}}')">
+                                        <div class="inline-flex items-center gap-1.5">
+                                            <span>{{.Name}}</span>
+                                            <span class="text-xs">
+                                                {{"{{"}} if eq $.SortBy "{{.OrmTag}}" {{"}}"}}
+                                                    {{"{{"}} if eq $.SortOrder "desc" {{"}}"}}↓{{"{{"}} else {{"}}"}}↑{{"{{"}} end {{"}}"}}
+                                                {{"{{"}} else {{"}}"}}
+                                                    <span class="text-slate-300">↕</span>
+                                                {{"{{"}} end {{"}}"}}
+                                            </span>
+                                        </div>
+                                    </th>
                                     {{- end}}
                                     <th class="sticky right-0 bg-slate-50 px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-20">Aksi</th>
                                 </tr>
@@ -432,6 +611,11 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                             <tbody class="divide-y divide-slate-100">
                                 {{"{{"}}range .List{{"}}"}}
                                 <tr class="group hover:bg-slate-50/50 transition-colors">
+                                    {{- if not $.IsReadOnly}}
+                                    <td class="w-10 px-4 py-4 text-center">
+                                        <input type="checkbox" name="batch_ids" value="{{"{{"}} .{{$.PKName}} {{"}}"}}" onchange="updateBatchDeleteBtn()" class="row-checkbox w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+                                    </td>
+                                    {{- end}}
                                     {{- range .ListFields}}
                                     <td class="px-6 py-4 text-sm text-slate-700 font-medium">
                                         {{- if eq .HTMLType "file"}}
@@ -449,30 +633,32 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                                     {{- end}}
                                     <td class="sticky right-0 bg-white group-hover:bg-slate-50/50 px-6 py-4 text-sm text-slate-700 text-right whitespace-nowrap shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-10">
                                         <div class="flex items-center justify-end space-x-1">
-                                            <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}" class="inline-flex items-center justify-center p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 hover:text-emerald-950 transition-colors" title="Show">
+                                            <a href="/{{$.TableName}}/{{"{{"}} .{{$.PKName}} {{"}}"}}" class="inline-flex items-center justify-center p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 hover:text-emerald-950 transition-colors" title="Show">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                 </svg>
                                             </a>
                                             {{- if not .IsReadOnly}}
-                                            <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/edit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900 transition-colors" title="Update">
+                                            <a href="/{{$.TableName}}/{{"{{"}} .{{$.PKName}} {{"}}"}}/edit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900 transition-colors" title="Update">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                 </svg>
                                             </a>
-                                            <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/delete" onclick="return confirm('Hapus data ini?')" class="inline-flex items-center justify-center p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-900 transition-colors" title="Delete">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </a>
+                                            <form method="POST" action="/{{$.TableName}}/{{"{{"}} .{{$.PKName}} {{"}}"}}/delete" onsubmit="return confirm('Hapus data ini?')" class="inline">
+                                                <button type="submit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-900 transition-colors" title="Delete">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </form>
                                             {{- end}}
                                         </div>
                                     </td>
                                 </tr>
                                 {{"{{"}}else{{"}}"}}
                                 <tr>
-                                    <td colspan="{{add (len .ListFields) 1}}" class="px-6 py-10 text-center text-sm text-slate-400">
+                                    <td colspan="{{if not .IsReadOnly}}{{add (len .ListFields) 2}}{{else}}{{add (len .ListFields) 1}}{{end}}" class="px-6 py-10 text-center text-sm text-slate-400">
                                         Tidak ada data ditemukan.
                                     </td>
                                 </tr>
@@ -523,6 +709,61 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
         </div>
     </div>
     <script>
+        function sortBy(col) {
+            const params = new URLSearchParams(window.location.search);
+            const currentSort = params.get('sort_by');
+            const currentOrder = params.get('sort_order') || 'asc';
+            if (currentSort === col) {
+                params.set('sort_order', currentOrder === 'asc' ? 'desc' : 'asc');
+            } else {
+                params.set('sort_by', col);
+                params.set('sort_order', 'asc');
+            }
+            params.set('page', 1);
+            window.location.search = params.toString();
+        }
+
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.row-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+            updateBatchDeleteBtn();
+        }
+
+        function updateBatchDeleteBtn() {
+            const checked = document.querySelectorAll('.row-checkbox:checked');
+            const btn = document.getElementById('btn-batch-delete');
+            const countSpan = document.getElementById('selected-count');
+            if (countSpan) countSpan.textContent = checked.length;
+            if (btn) {
+                if (checked.length > 0) {
+                    btn.classList.remove('opacity-0', 'pointer-events-none');
+                    btn.removeAttribute('disabled');
+                } else {
+                    btn.classList.add('opacity-0', 'pointer-events-none');
+                    btn.setAttribute('disabled', 'true');
+                }
+            }
+        }
+
+        function submitBatchDelete() {
+            const checked = document.querySelectorAll('.row-checkbox:checked');
+            if (checked.length === 0) return;
+            if (!confirm('Yakin ingin menghapus ' + checked.length + ' data terpilih?')) return;
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/{{.TableName}}/batch-delete';
+            checked.forEach(cb => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'ids';
+                input.value = cb.value;
+                form.appendChild(input);
+            });
+            document.body.appendChild(form);
+            form.submit();
+        }
+
         async function performSearch(keyword) {
             const params = new URLSearchParams(window.location.search);
             if (keyword) {
@@ -584,6 +825,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
                 if (newTotal && currentTotal) {
                     currentTotal.innerHTML = newTotal.innerHTML;
                 }
+                updateBatchDeleteBtn();
             } catch (err) {
                 console.error('AJAX search failed:', err);
             }
@@ -594,6 +836,7 @@ var listHTMLTemplate = template.Must(template.New("list_html").Funcs(template.Fu
             const isCollapsed = sidebar.classList.toggle('w-18');
             if (isCollapsed) {
                 sidebar.classList.remove('w-64');
+                sidebar.classList.add('w-18');
                 localStorage.setItem('sidebar-collapsed', 'true');
             } else {
                 sidebar.classList.add('w-64');
@@ -674,25 +917,35 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                             {{- range .FormFields}}
                             <div class="{{if .IsFullWidth}}md:col-span-2{{else}}md:col-span-1{{end}}">
-                                <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}</label>
+                                <label class="block text-sm font-semibold text-slate-700 mb-1.5">{{.Name}}{{if .IsRequired}} <span class="text-rose-500">*</span>{{end}}</label>
                                 {{- if .EnumValues}}
                                 {{- $fieldName := .Name}}
-                                <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white">
+                                <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white"{{if .IsRequired}} required{{end}}>
                                     <option value="">-- Pilih {{.Name}} --</option>
                                     {{- range .EnumValues}}
                                     <option value="{{.}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) "{{.}}" {{"}}"}}selected{{"{{"}} end {{"}}"}}>{{.}}</option>
                                     {{- end}}
                                 </select>
-                                {{- else if .IsTextarea}}
-                                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}">{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
+                               {{- else if .IsFK}}
+                                {{- $fieldName := .Name}}
+                                <select name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm bg-white"{{if .IsRequired}} required{{end}} data-fk-table="{{.FKTable}}">
+                                    <option value="">-- Pilih dari tabel {{.FKTable}} --</option>
+                                    {{"{{"}} range .FkOpts{{.Name}} {{"}}"}}
+                                    <option value="{{"{{"}} .Id {{"}}"}}" {{"{{"}} if eq (printf "%v" $.{{$fieldName}}) (printf "%v" .Id) {{"}}"}}selected{{"{{"}} end {{"}}"}}>
+                                        {{"{{"}} .Label {{"}}"}}
+                                    </option>
+                                    {{"{{"}} end {{"}}"}}
+                                </select>
+                               {{- else if .IsTextarea}}
+                                <textarea name="{{.JsonTag}}" rows="4" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-y" placeholder="{{if .IsJson}}Masukkan {{.Name}} (Format JSON, contoh: {}){{else}}Masukkan {{.Name}}...{{end}}"{{if .IsRequired}} required{{end}}>{{"{{"}} .{{.Name}} {{"}}"}}</textarea>
                                 {{- else if eq .HTMLType "file"}}
                                 <input type="file" name="{{.JsonTag}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                                 {{- else if eq .HTMLType "date"}}
-                                <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                <input type="date" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"{{if .IsRequired}} required{{end}} />
                                 {{- else if eq .HTMLType "time"}}
-                                <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                <input type="time" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "15:04:05" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"{{if .IsRequired}} required{{end}} />
                                 {{- else if eq .HTMLType "datetime-local"}}
-                                <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                <input type="datetime-local" name="{{.JsonTag}}" value="{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}}.Layout "2006-01-02T15:04" {{"}}"}}{{"{{"}} end {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"{{if .IsRequired}} required{{end}} />
                                 {{- else if eq .HTMLType "checkbox"}}
                                 <label class="flex items-center gap-2 cursor-pointer pt-2">
                                     <input type="checkbox" name="{{.JsonTag}}" value="1" {{"{{"}} if .{{.Name}} {{"}}"}}checked{{"{{"}} end {{"}}"}} class="w-4 h-4 accent-indigo-600" />
@@ -704,7 +957,7 @@ var formHTMLTemplate = template.Must(template.New("form_html").Funcs(template.Fu
                                     <span class="text-sm font-semibold text-slate-600 min-w-[2.5rem] text-right">{{"{{"}} if .{{.Name}} {{"}}"}}{{"{{"}} .{{.Name}} {{"}}"}}{{"{{"}} else {{"}}"}}{{if .Rules.min}}{{.Rules.min}}{{else}}0{{end}}{{"{{"}} end {{"}}"}}</span>
                                 </div>
                                 {{- else}}
-                                <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm" />
+                                <input type="{{.HTMLType}}" name="{{.JsonTag}}" value="{{"{{"}} .{{.Name}} {{"}}"}}" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"{{if .IsRequired}} required{{end}} />
                                 {{- end}}
                             </div>
                             {{- end}}
@@ -1092,23 +1345,25 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
                                     {{- end}}
                                     <td class="sticky right-0 bg-white group-hover:bg-slate-50/50 px-6 py-4 text-sm text-slate-700 text-right whitespace-nowrap shadow-[-4px_0_8px_rgba(0,0,0,0.05)] z-10">
                                         <div class="flex items-center justify-end space-x-1">
-                                            <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}" class="inline-flex items-center justify-center p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 hover:text-emerald-950 transition-colors" title="Show">
+                                            <a href="/{{$.TableName}}/{{"{{"}} .{{$.PKName}} {{"}}"}}" class="inline-flex items-center justify-center p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 hover:text-emerald-950 transition-colors" title="Show">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                 </svg>
                                             </a>
                                             {{- if not .IsReadOnly}}
-                                            <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/edit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900 transition-colors" title="Update">
+                                            <a href="/{{$.TableName}}/{{"{{"}} .{{$.PKName}} {{"}}"}}/edit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900 transition-colors" title="Update">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                 </svg>
                                             </a>
-                                            <a href="/{{$.TableName}}/{{"{{"}} .Id {{"}}"}}/delete" onclick="return confirm('Hapus data ini?')" class="inline-flex items-center justify-center p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-900 transition-colors" title="Delete">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </a>
+                                            <form method="POST" action="/{{$.TableName}}/{{"{{"}} .{{$.PKName}} {{"}}"}}/delete" onsubmit="return confirm('Hapus data ini?')" class="inline">
+                                                <button type="submit" class="inline-flex items-center justify-center p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-900 transition-colors" title="Delete">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </form>
                                             {{- end}}
                                         </div>
                                     </td>
@@ -1239,173 +1494,356 @@ var filterHTMLTemplate = template.Must(template.New("filter_html").Funcs(templat
 var ctrlNewTemplate = template.Must(template.New("ctrl_new").Parse(`package {{.TableName}}
 
 import (
+	"context"
+	"github.com/gogf/gf/v2/container/gmap"
+{{- if .HasFK}}
+	"github.com/gogf/gf/v2/frame/g"
+	"{{.ModuleName}}/internal/dao"
+	"{{.ModuleName}}/internal/model"
+{{- end}}
+{{- if .HasGtime}}
+	"github.com/gogf/gf/v2/os/gtime"
+{{- end}}
 	"{{.ModuleName}}/api/{{.TableName}}"
+	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
+	"{{.ModuleName}}/internal/model/entity"
 )
+
 
 type ControllerV1 struct{}
 
 func NewV1() {{.TableName}}.I{{.StructName}}V1 {
 	return &ControllerV1{}
 }
+
+func get{{.ShortName}}Header(ctx context.Context) v1.{{.ShortName}}Header {
+	return v1.{{.ShortName}}Header{
+		{{- range .Fields}}
+		{{.Name}}: v1.{{$.ShortName}}Field{
+			Type: "{{- if .IsFK}}select{{else}}{{.DataType}}{{- end}}",
+			{{- if .IsPK}}
+			IsPK: true,
+			{{- end}}
+			IsRequired: {{.IsRequired}},
+			{{- if .EnumValues}}
+			Values: []string{
+				{{- range .EnumValues}}
+				"{{.}}",
+				{{- end}}
+			},
+			{{- end}}
+            {{- if .IsFK}}
+            Extra: map[string]interface{}{
+                "options": get{{.FKStructName}}Options(ctx),
+            },
+			{{- else if .Rules}}
+			Extra: map[string]interface{}{
+				{{- range $k, $v := .Rules}}
+				"{{$k}}": {{$v}},
+				{{- end}}
+			},
+			{{- end}}
+		},
+		{{- end}}
+	}
+}
+
+func format{{.ShortName}}Data(data *entity.{{.StructName}}) *gmap.ListMap {
+	if data == nil {
+		return nil
+	}
+	m := gmap.NewListMap()
+	{{- range .Fields}}
+	{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
+	m.Set("{{.JsonTag}}", data.{{.Name}})
+	{{- else if eq .HTMLType "date"}}
+	if g.IsEmpty(data.{{.Name}}) {
+		m.Set("{{.JsonTag}}", nil)
+	} else {
+		m.Set("{{.JsonTag}}", gtime.New(data.{{.Name}}).Layout("2006-01-02"))
+	}
+	{{- else if eq .HTMLType "datetime-local"}}
+	if g.IsEmpty(data.{{.Name}}) {
+		m.Set("{{.JsonTag}}", nil)
+	} else {
+		m.Set("{{.JsonTag}}", gtime.New(data.{{.Name}}).Layout("2006-01-02 15:04:05"))
+	}
+	{{- else if eq .HTMLType "time"}}
+	if g.IsEmpty(data.{{.Name}}) {
+		m.Set("{{.JsonTag}}", nil)
+	} else {
+		m.Set("{{.JsonTag}}", gtime.New(data.{{.Name}}).Layout("15:04:05"))
+	}
+	{{- else}}
+	m.Set("{{.JsonTag}}", data.{{.Name}})
+	{{- end}}
+	{{- end}}
+	return m
+}
+
+func format{{.ShortName}}DataList(list []*entity.{{.StructName}}) []*gmap.ListMap {
+	rows := make([]*gmap.ListMap, 0, len(list))
+	for _, item := range list {
+		rows = append(rows, format{{.ShortName}}Data(item))
+	}
+	return rows
+}
+
+{{- range .Fields}}
+{{- if .IsFK}}
+func get{{.FKStructName}}Options(ctx context.Context) []g.Map {
+    rows, err := dao.{{.FKStructName}}.Ctx(ctx).All()
+    if err != nil {
+        return nil
+    }
+	var options []g.Map
+    for _, row := range rows {
+        var item entity.{{.FKStructName}}
+        _ = row.Struct(&item)
+
+        out := model.To{{.FKStructName}}Output(&item)
+        options = append(options, g.Map{
+            "id": out.Id,
+            "label": out.Label,
+        })
+    }
+
+    return options
+}
+{{- end}}
+{{- end}}
 `))
 
 var ctrlFormTemplate = template.Must(template.New("ctrl_form").Parse(`package {{.TableName}}
 
 import (
-	"github.com/gogf/gf/v2/net/ghttp"
+	"context"
 
+	"github.com/gogf/gf/v2/frame/g"
+
+	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
 	"{{.ModuleName}}/internal/service"
+	{{- if .HasFK}}
+	"{{.ModuleName}}/internal/dao"
+	"{{.ModuleName}}/internal/model/entity"
+	{{- end}}
 )
 
 // ShowCreateForm menampilkan form tambah data baru.
-func ShowCreateForm(r *ghttp.Request) {
-	r.Response.WriteTpl("{{.TableName}}/form.html", map[string]interface{}{})
+func (c *ControllerV1) ShowCreateForm(ctx context.Context, req *v1.ShowCreateFormReq) (res *v1.ShowCreateFormRes, err error) {
+	r := g.RequestFromCtx(ctx)
+
+	formValues := map[string]interface{}{}
+	{{- range .FormFields}}
+	{{- if .IsFK}}
+	var fkOpts{{.Name}} []*entity.{{.FKStructName}}
+	_ = dao.{{.FKStructName}}.Ctx(ctx).Scan(&fkOpts{{.Name}})
+	formValues["FkOpts{{.Name}}"] = fkOpts{{.Name}}
+	{{- end}}
+	{{- end}}
+
+	r.Response.WriteTpl("{{.TableName}}/form.html", formValues)
 	r.Exit()
+	return nil, nil
 }
 
 // ShowEditForm menampilkan form edit data berdasarkan ID.
-func ShowEditForm(r *ghttp.Request) {
-	id := r.GetRouter("id").Uint64()
-	if id == 0 {
+func (c *ControllerV1) ShowEditForm(ctx context.Context, req *v1.ShowEditFormReq) (res *v1.ShowEditFormRes, err error) {
+	r := g.RequestFromCtx(ctx)
+	{{- if or (eq .PKType "uint64") (eq .PKType "int") (eq .PKType "int64")}}
+	if req.Id == 0 {
 		r.Response.RedirectTo("/{{.TableName}}")
-		return
+		return nil, nil
 	}
-	data, err := service.{{.StructName}}().Get(r.Context(), id)
+	{{- else}}
+	if req.Id == "" {
+		r.Response.RedirectTo("/{{.TableName}}")
+		return nil, nil
+	}
+	{{- end}}
+	data, err := service.{{.StructName}}().Get(ctx, req.Id)
 	if err != nil || data == nil {
 		r.Response.RedirectTo("/{{.TableName}}")
-		return
+		return nil, nil
 	}
 
 	// Buat map explicit agar GoFrame view engine lancar me-render PascalCase struct fields
 	formValues := map[string]interface{}{
-		"Id": data.Id,
+		"Id": data.{{.PKName}},
 		{{- range .FormFields}}
+		{{- if ne .Name "Id"}}
 		"{{.Name}}": data.{{.Name}},
+		{{- end}}
+		{{- if .IsFK}}
+		"FkOpts{{.Name}}": func() interface{} {
+			var res []*entity.{{.FKStructName}}
+			_ = dao.{{.FKStructName}}.Ctx(ctx).Scan(&res)
+			return res
+		}(),
+		{{- end}}
 		{{- end}}
 	}
 
 	r.Response.WriteTpl("{{.TableName}}/form.html", formValues)
 	r.Exit()
+	return nil, nil
 }
 
-// DeleteAction menghapus data berdasarkan ID dari link GET.
-func DeleteAction(r *ghttp.Request) {
-	id := r.GetRouter("id").Uint64()
-	if id != 0 {
-		_ = service.{{.StructName}}().Delete(r.Context(), id)
+// DeleteAction menghapus data berdasarkan ID dari form POST.
+func (c *ControllerV1) DeleteAction(ctx context.Context, req *v1.DeleteActionReq) (res *v1.DeleteActionRes, err error) {
+	r := g.RequestFromCtx(ctx)
+	{{- if or (eq .PKType "uint64") (eq .PKType "int") (eq .PKType "int64")}}
+	if req.Id != 0 {
+		_ = service.{{.StructName}}().Delete(ctx, req.Id)
 	}
+	{{- else}}
+	if req.Id != "" {
+		_ = service.{{.StructName}}().Delete(ctx, req.Id)
+	}
+	{{- end}}
 	r.Response.RedirectTo("/{{.TableName}}")
+	r.Exit()
+	return nil, nil
+}
+`))
+
+var utilityResponseTemplate = template.Must(template.New("utility_response").Parse(`package response
+
+import (
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/net/ghttp"
+)
+
+// JsonSuccess mengirim response JSON sukses dan menghentikan request (r.Exit).
+func JsonSuccess(r *ghttp.Request, data ...interface{}) {
+	if r == nil {
+		return
+	}
+	resMap := g.Map{
+		"code":    0,
+		"message": "success",
+	}
+	if len(data) > 0 && data[0] != nil {
+		resMap["data"] = data[0]
+	}
+	r.Response.WriteJson(resMap)
+	r.Exit()
+}
+
+// JsonError mengirim response JSON error dengan status code (default 400 Bad Request) dan menghentikan request (r.Exit).
+func JsonError(r *ghttp.Request, err error, statusCode ...int) {
+	if r == nil {
+		return
+	}
+	status := 400
+	if len(statusCode) > 0 {
+		status = statusCode[0]
+	}
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	r.Response.WriteStatus(status)
+	r.Response.WriteJson(g.Map{
+		"code":    1,
+		"message": msg,
+	})
 	r.Exit()
 }
 `))
 
 var ctrlListTemplate = template.Must(template.New("ctrl_list").Parse(`package {{.TableName}}
  
- import (
+import (
  	"context"
+	"strings"
  
  	"github.com/gogf/gf/v2/frame/g"
  	"github.com/gogf/gf/v2/net/ghttp"
-{{- $hasGconv := false}}
-{{- range .Fields}}
-{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}{{$hasGconv = true}}{{end}}
-{{- end}}
-{{- if $hasGconv}}
-	"github.com/gogf/gf/v2/util/gconv"
-{{- end}}
-{{- if .HasGtime}}
- 	"github.com/gogf/gf/v2/os/gtime"
-{{- end}}
- 
+
  	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
+	"{{.ModuleName}}/internal/model"
  	"{{.ModuleName}}/internal/service"
- )
+ 	"{{.ModuleName}}/utility/response"
+)
 
 func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.ShortName}}Req) (res *v1.List{{.ShortName}}Res, err error) {
-	list, total, err := service.{{.StructName}}().List(ctx, req.Page, req.PageSize, req.Keyword)
-	if err != nil {
-		return nil, err
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
+	page := req.Page
+	pageSize := req.PageSize
+	if !isJson {
+		if page <= 0 {
+			page = 1
+		}
+		if pageSize <= 0 {
+			pageSize = 10
+		}
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
-	// Jika client meminta JSON (misal dari Flutter)
-	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
-		var listItems []v1.{{.ShortName}}Item
-		for _, item := range list {
-			listItems = append(listItems, v1.{{.ShortName}}Item{
-				{{- range .Fields}}
-				{{.Name}}: v1.{{$.ShortName}}Field{
-                    Type: "{{.DataType}}",
-                    {{- if .IsPK}}
-                    IsPK: true,
-                    {{- end}}
-                    {{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
-                    Value: gconv.String(item.{{.Name}}),
-                    {{- else if eq .HTMLType "date"}}
-                    Value: func() interface{} {
-                        if g.IsEmpty(item.{{.Name}}) {
-                            return nil
-                        }
-                        return gtime.New(item.{{.Name}}).Layout("2006-01-02")
-                    }(),
-                    {{- else if eq .HTMLType "datetime-local"}}
-                    Value: func() interface{} {
-                        if g.IsEmpty(item.{{.Name}}) {
-                            return nil
-                        }
-                        return gtime.New(item.{{.Name}}).Layout("2006-01-02 15:04:05")
-                    }(),
-                    {{- else if eq .HTMLType "time"}}
-                    Value: func() interface{} {
-                        if g.IsEmpty(item.{{.Name}}) {
-                            return nil
-                        }
-                        return gtime.New(item.{{.Name}}).Layout("15:04:05")
-                    }(),
-                    {{- else}}
-                    Value: item.{{.Name}},
-                    {{- end}}
-                    {{- if .EnumValues}}
-                    Values: []string{
-                        {{- range .EnumValues}}
-                        "{{.}}",
-                        {{- end}}
-                    },
-                    {{- end}}
-                    {{- if .Rules}}
-                    Extra: map[string]interface{}{
-                        {{- range $k, $v := .Rules}}
-                        "{{$k}}": {{$v}},
-                        {{- end}}
-                },
-                {{- end}}
-            },
-				{{- end}}
-			})
+	filters := make(map[string]interface{})
+	if r != nil {
+		for k, v := range r.GetMap() {
+			if strings.HasPrefix(k, "f_") {
+				filters[k] = v
+			}
 		}
-		r.Response.WriteJson(g.Map{
-			"code":    0,
-			"message": "success",
-			"data": g.Map{
-				"list":  listItems,
-				"total": total,
-				"page":  req.Page,
-			},
-		})
-		r.Exit()
+	}
+
+	in := model.{{.ShortName}}ListInput{
+		Page:      page,
+		PageSize:  pageSize,
+		Keyword:   req.Keyword,
+		SortBy:    req.SortBy,
+		SortOrder: req.SortOrder,
+		Filters:   filters,
+	}
+
+	list, total, err := service.{{.StructName}}().List(ctx, in)
+	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
+		return nil, err
+	}
+	// Jika client meminta JSON (misal dari Flutter)
+	if isJson {
+		dataRows := format{{.ShortName}}DataList(list)
+		totalPages := 1
+		if pageSize > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
+			if totalPages == 0 {
+				totalPages = 1
+			}
+		}
+
+		resData := &v1.List{{.ShortName}}Res{
+			Header:        get{{.ShortName}}Header(ctx),
+			Value:         dataRows,
+			Values:        dataRows,
+			Total:         total,
+			Page:          page,
+			PageSize:      pageSize,
+			JumlahHalaman: totalPages,
+			TotalPage:     totalPages,
+		}
+
+		response.JsonSuccess(r, resData)
 		return nil, nil
 	}
 
-	startIndex := (req.Page-1)*req.PageSize + 1
+	startIndex := (page-1)*pageSize + 1
 	if total == 0 {
 		startIndex = 0
 	}
-	endIndex := req.Page * req.PageSize
+	endIndex := page * pageSize
 	if endIndex > total {
 		endIndex = total
 	}
 
-	totalPages := (total + req.PageSize - 1) / req.PageSize
+	totalPages := (total + pageSize - 1) / pageSize
 	if totalPages == 0 {
 		totalPages = 1
 	}
@@ -1413,15 +1851,18 @@ func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.Sh
 	r.Response.WriteTpl("{{.TableName}}/list.html", g.Map{
 		"List":       list,
 		"Total":      total,
-		"Page":       req.Page,
-		"PageSize":   req.PageSize,
+		"Page":       page,
+		"PageSize":   pageSize,
 		"Keyword":    req.Keyword,
+		"SortBy":     req.SortBy,
+		"SortOrder":  req.SortOrder,
+		"PKName":     "{{.PKName}}",
 		"StartIndex": startIndex,
 		"EndIndex":   endIndex,
-		"PrevPage":   req.Page - 1,
-		"NextPage":   req.Page + 1,
-		"HasPrev":    req.Page > 1,
-		"HasNext":    req.Page*req.PageSize < total,
+		"PrevPage":   page - 1,
+		"NextPage":   page + 1,
+		"HasPrev":    page > 1,
+		"HasNext":    page*pageSize < total,
 		"TotalPages": totalPages,
 	})
 	r.Exit()
@@ -1429,90 +1870,82 @@ func (c *ControllerV1) List{{.ShortName}}(ctx context.Context, req *v1.List{{.Sh
 }
 
 func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{{.ShortName}}Req) (res *v1.Filter{{.ShortName}}Res, err error) {
-	list, total, err := service.{{.StructName}}().List(ctx, req.Page, req.PageSize, req.Keyword)
-	if err != nil {
-		return nil, err
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
+	page := req.Page
+	pageSize := req.PageSize
+	if !isJson {
+		if page <= 0 {
+			page = 1
+		}
+		if pageSize <= 0 {
+			pageSize = 10
+		}
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
-	// Jika client meminta JSON (misal dari Flutter)
-	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
-		var listItems []v1.{{.ShortName}}Item
-		for _, item := range list {
-			listItems = append(listItems, v1.{{.ShortName}}Item{
-				{{- range .Fields}}
-				{{.Name}}: v1.{{$.ShortName}}Field{
-					Type: "{{.DataType}}",
-					{{- if .IsPK}}
-					IsPK: true,
-					{{- end}}
-					{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
-					Value: gconv.String(item.{{.Name}}),
-					{{- else if eq .HTMLType "date"}}
-					Value: func() interface{} {
-						if g.IsEmpty(item.{{.Name}}) {
-							return nil
-						}
-						return gtime.New(item.{{.Name}}).Layout("2006-01-02")
-					}(),
-					{{- else if eq .HTMLType "datetime-local"}}
-					Value: func() interface{} {
-						if g.IsEmpty(item.{{.Name}}) {
-							return nil
-						}
-						return gtime.New(item.{{.Name}}).Layout("2006-01-02 15:04:05")
-					}(),
-					{{- else if eq .HTMLType "time"}}
-					Value: func() interface{} {
-						if g.IsEmpty(item.{{.Name}}) {
-							return nil
-						}
-						return gtime.New(item.{{.Name}}).Layout("15:04:05")
-					}(),
-					{{- else}}
-					Value: item.{{.Name}},
-					{{- end}}
-					{{- if .EnumValues}}
-					Values: []string{
-						{{- range .EnumValues}}
-						"{{.}}",
-						{{- end}}
-					},
-					{{- end}}
-                    {{- if .Rules}}
-					Extra: map[string]interface{}{
-						{{- range $k, $v := .Rules}}
-						"{{$k}}": {{$v}},
-						{{- end}}
-					},
-					{{- end}}
-				},
-				{{- end}}
-			})
+	filters := make(map[string]interface{})
+	if r != nil {
+		for k, v := range r.GetMap() {
+			if strings.HasPrefix(k, "f_") {
+				filters[k] = v
+			}
 		}
-		r.Response.WriteJson(g.Map{
-			"code":    0,
-			"message": "success",
-			"data": g.Map{
-				"list":  listItems,
-				"total": total,
-				"page":  req.Page,
-			},
-		})
-		r.Exit()
+	}
+
+	in := model.{{.ShortName}}ListInput{
+		Page:      page,
+		PageSize:  pageSize,
+		Keyword:   req.Keyword,
+		SortBy:    req.SortBy,
+		SortOrder: req.SortOrder,
+		Filters:   filters,
+	}
+
+	list, total, err := service.{{.StructName}}().List(ctx, in)
+	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
+		return nil, err
+	}
+	// Jika client meminta JSON (misal dari Flutter)
+	if isJson {
+		dataRows := format{{.ShortName}}DataList(list)
+		totalPages := 1
+		if pageSize > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
+			if totalPages == 0 {
+				totalPages = 1
+			}
+		}
+
+		resData := &v1.Filter{{.ShortName}}Res{
+			Header:        get{{.ShortName}}Header(ctx),
+			Value:         dataRows,
+			Values:        dataRows,
+			Total:         total,
+			Page:          page,
+			PageSize:      pageSize,
+			JumlahHalaman: totalPages,
+			TotalPage:     totalPages,
+		}
+
+		response.JsonSuccess(r, resData)
 		return nil, nil
 	}
 
-	startIndex := (req.Page-1)*req.PageSize + 1
+	startIndex := (page-1)*pageSize + 1
 	if total == 0 {
 		startIndex = 0
 	}
-	endIndex := req.Page * req.PageSize
+	endIndex := page * pageSize
 	if endIndex > total {
 		endIndex = total
 	}
 
-	totalPages := (total + req.PageSize - 1) / req.PageSize
+	totalPages := (total + pageSize - 1) / pageSize
 	if totalPages == 0 {
 		totalPages = 1
 	}
@@ -1520,15 +1953,18 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 	tplData := g.Map{
 		"List":       list,
 		"Total":      total,
-		"Page":       req.Page,
-		"PageSize":   req.PageSize,
+		"Page":       page,
+		"PageSize":   pageSize,
 		"Keyword":    req.Keyword,
+		"SortBy":     req.SortBy,
+		"SortOrder":  req.SortOrder,
+		"PKName":     "{{.PKName}}",
 		"StartIndex": startIndex,
 		"EndIndex":   endIndex,
-		"PrevPage":   req.Page - 1,
-		"NextPage":   req.Page + 1,
-		"HasPrev":    req.Page > 1,
-		"HasNext":    req.Page*req.PageSize < total,
+		"PrevPage":   page - 1,
+		"NextPage":   page + 1,
+		"HasPrev":    page > 1,
+		"HasNext":    page*pageSize < total,
 		"TotalPages": totalPages,
 	}
 
@@ -1547,97 +1983,49 @@ func (c *ControllerV1) Filter{{.ShortName}}(ctx context.Context, req *v1.Filter{
 
 var ctrlGetTemplate = template.Must(template.New("ctrl_get").Parse(`package {{.TableName}}
  
- import (
+import (
  	"context"
  
  	"github.com/gogf/gf/v2/frame/g"
  	"github.com/gogf/gf/v2/net/ghttp"
-{{- $hasGconv := false}}
-{{- range .Fields}}
-{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}{{$hasGconv = true}}{{end}}
-{{- end}}
-{{- if $hasGconv}}
-	"github.com/gogf/gf/v2/util/gconv"
-{{- end}}
-{{- if .HasGtime}}
- 	"github.com/gogf/gf/v2/os/gtime"
-{{- end}}
- 
+
  	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
  	"{{.ModuleName}}/internal/service"
- )
+ 	"{{.ModuleName}}/utility/response"
+)
 
 func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.ShortName}}Req) (res *v1.Get{{.ShortName}}Res, err error) {
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
 	data, err := service.{{.StructName}}().Get(ctx, req.Id)
 	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
 	// Jika client meminta JSON (misal dari Flutter)
-	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
-		item := v1.{{.ShortName}}Item{
-			{{- range .Fields}}
-			{{.Name}}: v1.{{$.ShortName}}Field{
-				Type: "{{.DataType}}",
-				{{- if .IsPK}}
-				IsPK: true,
-				{{- end}}
-				{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
-				Value: gconv.String(data.{{.Name}}),
-				{{- else if eq .HTMLType "date"}}
-				Value: func() interface{} {
-					if g.IsEmpty(data.{{.Name}}) {
-						return nil
-					}
-					return gtime.New(data.{{.Name}}).Layout("2006-01-02")
-				}(),
-				{{- else if eq .HTMLType "datetime-local"}}
-				Value: func() interface{} {
-					if g.IsEmpty(data.{{.Name}}) {
-						return nil
-					}
-					return gtime.New(data.{{.Name}}).Layout("2006-01-02 15:04:05")
-				}(),
-				{{- else if eq .HTMLType "time"}}
-				Value: func() interface{} {
-					if g.IsEmpty(data.{{.Name}}) {
-						return nil
-					}
-					return gtime.New(data.{{.Name}}).Layout("15:04:05")
-				}(),
-				{{- else}}
-				Value: data.{{.Name}},
-				{{- end}}
-				{{- if .EnumValues}}
-				Values: []string{
-					{{- range .EnumValues}}
-					"{{.}}",
-					{{- end}}
-				},
-				{{- end}}
-                {{- if .Rules}}
-					Extra: map[string]interface{}{
-						{{- range $k, $v := .Rules}}
-						"{{$k}}": {{$v}},
-						{{- end}}
-					},
-				{{- end}}
-			},
-			{{- end}}
+	if isJson {
+		rowData := format{{.ShortName}}Data(data)
+		resData := &v1.Get{{.ShortName}}Res{
+			Header: get{{.ShortName}}Header(ctx),
+			Value:  rowData,
+			Values: rowData,
 		}
-		r.Response.WriteJson(g.Map{
-			"code":    0,
-			"message": "success",
-			"data":    item,
-		})
-		r.Exit()
+		response.JsonSuccess(r, resData)
 		return nil, nil
 	}
 
 	r.Response.WriteTpl("{{.TableName}}/detail.html", g.Map{
+		"PKName": "{{.PKName}}",
+		"Id": data.{{.PKName}},
 		{{- range .Fields}}
+		{{- if ne .Name "Id"}}
 		"{{.Name}}": data.{{.Name}},
+		{{- end}}
 		{{- end}}
 	})
 	r.Exit()
@@ -1645,33 +2033,32 @@ func (c *ControllerV1) Get{{.ShortName}}(ctx context.Context, req *v1.Get{{.Shor
 }
 `))
 
-var ctrlCreateTemplate = template.Must(template.New("ctrl_create").Parse(`package {{.TableName}}
+var ctrlCreateTemplate = template.Must(template.New("ctrl_create").Funcs(template.FuncMap{
+	"contains": strings.Contains,
+}).Parse(`package {{.TableName}}
  
- import (
+import (
  	"context"
-{{- $hasGconv := false}}
-{{- range .Fields}}
-{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}{{$hasGconv = true}}{{end}}
+{{- $hasFile := false}}
+{{- range .FormFields}}
+{{- if eq .HTMLType "file"}}{{$hasFile = true}}{{end}}
 {{- end}}
-{{- if $hasGconv}}
-	"github.com/gogf/gf/v2/util/gconv"
-{{- end}}
-{{- if .HasUpload}}
+{{- if or .HasUpload $hasFile}}
  	"io"
 {{- end}}
  
- 	"github.com/gogf/gf/v2/frame/g"
  	"github.com/gogf/gf/v2/net/ghttp"
-{{- if .HasGtime}}
- 	"github.com/gogf/gf/v2/os/gtime"
-{{- end}}
  
  	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
  	"{{.ModuleName}}/internal/model/do"
  	"{{.ModuleName}}/internal/service"
- )
+ 	"{{.ModuleName}}/utility/response"
+)
 
 func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{{.ShortName}}Req) (res *v1.Create{{.ShortName}}Res, err error) {
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
 	createData := do.{{.StructName}}{
 		{{- range .FormFields}}
 		{{- if ne .HTMLType "file"}}
@@ -1694,68 +2081,22 @@ func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{
 
 	data, err := service.{{.StructName}}().Create(ctx, createData)
 	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
 	// Jika client meminta JSON (misal dari Flutter)
-	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
-		item := v1.{{.ShortName}}Item{
-			{{- range .Fields}}
-			{{.Name}}: v1.{{$.ShortName}}Field{
-				Type: "{{.DataType}}",
-				{{- if .IsPK}}
-				IsPK: true,
-				{{- end}}
-				{{- if or (eq .Type "int64") (eq .Type "uint64") (eq .Type "*int64") (eq .Type "*uint64")}}
-				Value: gconv.String(data.{{.Name}}),
-				{{- else if eq .HTMLType "date"}}
-				Value: func() interface{} {
-					if g.IsEmpty(data.{{.Name}}) {
-						return nil
-					}
-					return gtime.New(data.{{.Name}}).Layout("2006-01-02")
-				}(),
-				{{- else if eq .HTMLType "datetime-local"}}
-				Value: func() interface{} {
-					if g.IsEmpty(data.{{.Name}}) {
-						return nil
-					}
-					return gtime.New(data.{{.Name}}).Layout("2006-01-02 15:04:05")
-				}(),
-				{{- else if eq .HTMLType "time"}}
-				Value: func() interface{} {
-					if g.IsEmpty(data.{{.Name}}) {
-						return nil
-					}
-					return gtime.New(data.{{.Name}}).Layout("15:04:05")
-				}(),
-				{{- else}}
-				Value: data.{{.Name}},
-				{{- end}}
-				{{- if .EnumValues}}
-				Values: []string{
-					{{- range .EnumValues}}
-					"{{.}}",
-					{{- end}}
-				},
-				{{- end}}
-                {{- if .Rules}}
-					Extra: map[string]interface{}{
-						{{- range $k, $v := .Rules}}
-						"{{$k}}": {{$v}},
-						{{- end}}
-					},
-				{{- end}}
-			},
-			{{- end}}
+	if isJson {
+		rowData := format{{.ShortName}}Data(data)
+		resData := &v1.Create{{.ShortName}}Res{
+			Header: get{{.ShortName}}Header(ctx),
+			Value:  rowData,
+			Values: rowData,
 		}
-		r.Response.WriteJson(g.Map{
-			"code":    0,
-			"message": "success",
-			"data":    item,
-		})
-		r.Exit()
+		response.JsonSuccess(r, resData)
 		return nil, nil
 	}
 
@@ -1765,23 +2106,32 @@ func (c *ControllerV1) Create{{.ShortName}}(ctx context.Context, req *v1.Create{
 }
 `))
 
-var ctrlUpdateTemplate = template.Must(template.New("ctrl_update").Parse(`package {{.TableName}}
+var ctrlUpdateTemplate = template.Must(template.New("ctrl_update").Funcs(template.FuncMap{
+	"contains": strings.Contains,
+}).Parse(`package {{.TableName}}
 
 import (
 	"context"
-{{- if .HasUpload}}
+{{- $hasFile := false}}
+{{- range .FormFields}}
+{{- if eq .HTMLType "file"}}{{$hasFile = true}}{{end}}
+{{- end}}
+{{- if or .HasUpload $hasFile}}
 	"io"
 {{- end}}
 
-	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
 	"{{.ModuleName}}/internal/model/do"
 	"{{.ModuleName}}/internal/service"
+	"{{.ModuleName}}/utility/response"
 )
 
 func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{{.ShortName}}Req) (res *v1.Update{{.ShortName}}Res, err error) {
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
 	updateData := do.{{.StructName}}{
 		{{- range .FormFields}}
 		{{- if ne .HTMLType "file"}}
@@ -1804,17 +2154,16 @@ func (c *ControllerV1) Update{{.ShortName}}(ctx context.Context, req *v1.Update{
 
 	err = service.{{.StructName}}().Update(ctx, req.Id, updateData)
 	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
 	// Jika client meminta JSON (misal dari Flutter)
-	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
-		r.Response.WriteJson(g.Map{
-			"code":    0,
-			"message": "success",
-		})
-		r.Exit()
+	if isJson {
+		response.JsonSuccess(r)
 		return nil, nil
 	}
 
@@ -1829,27 +2178,65 @@ var ctrlDeleteTemplate = template.Must(template.New("ctrl_delete").Parse(`packag
 import (
 	"context"
 
-	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
 	"{{.ModuleName}}/internal/service"
+	"{{.ModuleName}}/utility/response"
 )
 
 func (c *ControllerV1) Delete{{.ShortName}}(ctx context.Context, req *v1.Delete{{.ShortName}}Req) (res *v1.Delete{{.ShortName}}Res, err error) {
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
 	err = service.{{.StructName}}().Delete(ctx, req.Id)
 	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	r := ghttp.RequestFromCtx(ctx)
 	// Jika client meminta JSON (misal dari Flutter)
-	if r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json") {
-		r.Response.WriteJson(g.Map{
-			"code":    0,
-			"message": "success",
-		})
-		r.Exit()
+	if isJson {
+		response.JsonSuccess(r)
+		return nil, nil
+	}
+
+	r.Response.RedirectTo("/{{.TableName}}")
+	r.Exit()
+	return nil, nil
+}
+`))
+
+var ctrlBatchDeleteTemplate = template.Must(template.New("ctrl_batch_delete").Parse(`package {{.TableName}}
+
+import (
+	"context"
+
+	"github.com/gogf/gf/v2/net/ghttp"
+
+	v1 "{{.ModuleName}}/api/{{.TableName}}/v1"
+	"{{.ModuleName}}/internal/service"
+	"{{.ModuleName}}/utility/response"
+)
+
+func (c *ControllerV1) BatchDelete{{.ShortName}}(ctx context.Context, req *v1.BatchDelete{{.ShortName}}Req) (res *v1.BatchDelete{{.ShortName}}Res, err error) {
+	r := ghttp.RequestFromCtx(ctx)
+	isJson := r != nil && (r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json")
+
+	count, err := service.{{.StructName}}().BatchDelete(ctx, req.Ids)
+	if err != nil {
+		if isJson {
+			response.JsonError(r, err)
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if isJson {
+		response.JsonSuccess(r, &v1.BatchDelete{{.ShortName}}Res{Count: count})
 		return nil, nil
 	}
 
@@ -1895,6 +2282,19 @@ var (
 			})
 
 			s.Group("/", func(group *ghttp.RouterGroup) {
+				group.Middleware(func(r *ghttp.Request) {
+					r.Middleware.Next()
+					if err := r.GetError(); err != nil {
+						if r.Header.Get("Accept") == "application/json" || r.Get("format").String() == "json" {
+							r.Response.ClearBuffer()
+							r.Response.WriteStatus(400)
+							r.Response.WriteJson(g.Map{
+								"code":    1,
+								"message": err.Error(),
+							})
+						}
+					}
+				})
 				group.Bind(
 {{- range .Controllers}}
 {{- if .HasHTML}}
@@ -2001,18 +2401,6 @@ var (
 					r.Exit()
 				})
 			})
-
-{{range .Controllers}}
-{{- if .HasHTML}}
-{{- if .HasWrite}}
-			s.Group("/{{.TableName}}", func(group *ghttp.RouterGroup) {
-				group.GET("/create", {{.PackageName}}.ShowCreateForm)
-				group.GET("/{id}/edit", {{.PackageName}}.ShowEditForm)
-				group.GET("/{id}/delete", {{.PackageName}}.DeleteAction)
-			})
-{{- end}}
-{{- end}}
-{{- end}}
 
 			s.Run()
 			return nil
