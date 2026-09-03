@@ -216,9 +216,7 @@ func configureTableViews(targetTables []*TableInfo, genConfig *GenConfig, reconf
 }
 
 func generateModel(root string, info *TableInfo, overwrite bool) {
-
-	var labelField string
-
+	labelField := info.PKName
 	for i, f := range info.Fields {
 		if f.IsPK {
 			if i+1 < len(info.Fields) {
@@ -227,11 +225,20 @@ func generateModel(root string, info *TableInfo, overwrite bool) {
 			}
 		}
 	}
-
+	if labelField == "" && len(info.Fields) > 0 {
+		labelField = info.Fields[0].Name
+	}
 	info.LabelFieldName = labelField
 
 	modelDir := filepath.Join(root, "internal", "model")
 	_ = os.MkdirAll(modelDir, 0755)
+
+	// Clean up legacy singular/plural duplicate model file if exists
+	shortVar := structNameToVar(info.ShortName)
+	if shortVar != info.VarName {
+		_ = os.Remove(filepath.Join(modelDir, shortVar+".go"))
+	}
+
 	_ = generateFile(filepath.Join(modelDir, info.VarName+".go"), modelTemplate, info, overwrite)
 }
 

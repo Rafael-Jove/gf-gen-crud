@@ -5,10 +5,19 @@ import (
 	"text/template"
 )
 
-var modelTemplate = template.Must(template.New("model").Parse(`package model
+var modelTemplate = template.Must(template.New("model").Funcs(template.FuncMap{
+	"contains": strings.Contains,
+}).Parse(`package model
 
 import(
     "fmt"
+{{- $hasGtime := .HasGtime}}
+{{- range .Fields}}
+{{- if contains .Type "gtime"}}{{$hasGtime = true}}{{end}}
+{{- end}}
+{{- if $hasGtime}}
+    "github.com/gogf/gf/v2/os/gtime"
+{{- end}}
     "{{.ModuleName}}/internal/model/entity"
 )
 
@@ -1495,9 +1504,12 @@ var ctrlNewTemplate = template.Must(template.New("ctrl_new").Parse(`package {{.T
 
 import (
 	"context"
+
 	"github.com/gogf/gf/v2/container/gmap"
-{{- if .HasFK}}
+{{- if or .HasFK .HasGtime}}
 	"github.com/gogf/gf/v2/frame/g"
+{{- end}}
+{{- if .HasFK}}
 	"{{.ModuleName}}/internal/dao"
 	"{{.ModuleName}}/internal/model"
 {{- end}}
