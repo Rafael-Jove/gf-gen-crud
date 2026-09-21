@@ -70,15 +70,13 @@ func parseEntityFile(filePath, moduleName string) (*TableInfo, error) {
 				fieldName := field.Names[0].Name
 				typStr := goTypeStr(field.Type)
 
-				var jsonTag, ormTag string
+				var ormTag string
 				if field.Tag != nil {
 					raw := field.Tag.Value
-					jsonTag = extractTag(raw, "json")
 					ormTag = extractTag(raw, "orm")
 				}
-				if jsonTag == "-" || jsonTag == "" {
-					jsonTag = strings.ToLower(fieldName[:1]) + fieldName[1:]
-				}
+				// Selalu gunakan camelCase dari nama field (mengabaikan tag json di entity)
+				jsonTag := strings.ToLower(fieldName[:1]) + fieldName[1:]
 
 				isSkip := skipFormFields[fieldName]
 				isAudit := fieldName == "CreatedAt" || fieldName == "UpdatedAt" ||
